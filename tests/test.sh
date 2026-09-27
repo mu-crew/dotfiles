@@ -65,6 +65,15 @@ check "local and remote counts add" "$(tmux display -p '#{E:@mu_crew_n_blocked}'
 check "pill shows the sum" "$(tmux display -p '#{E:@mu_crew_pill}' | grep -c '#\[fg=#fab387\]3')" 1
 check "zero states are hidden" "$(tmux display -p '#{E:@mu_crew_pill}' | grep -c '#f38ba8')" 0
 
+# --- window glyph -------------------------------------------------------------
+tmux set -w @murmur_window_state blocked
+check "window glyph shows state" "$(tmux display -p '#{E:@mu_crew_window_glyph}' | grep -c fab387)" 1
+tmux set -wu @murmur_window_state
+tmux set -w @murmur_window_has_agent 1
+check "idle agent window shows idle glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}' | grep -c 6c7086)" 1
+tmux set -wu @murmur_window_has_agent
+check "no agent, no glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}')" ""
+
 # --- remote poller --------------------------------------------------------------
 fake_murmur <<'SH'
 #!/bin/sh
