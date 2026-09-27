@@ -7,7 +7,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
 socket="$tmp/tmux.sock"
 fail=0
-trap 'tmux -S "$socket" kill-server 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'tmux -S "$socket" kill-server 2>/dev/null; rm -rf "$tmp"; exit $fail' EXIT
 
 # Every tmux call in the scripts goes to our server.
 mkdir -p "$tmp/bin"
@@ -93,6 +93,23 @@ tmux set -w @murmur_window_has_agent 1
 check "idle agent window shows idle glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}' | grep -c 6c7086)" 1
 tmux set -wu @murmur_window_has_agent
 check "no agent, no glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}')" ""
+
+# --- ASCII glyphs ---------------------------------------------------------------
+tmux set -g @mu_crew_ascii 1
+tmux source-file "$root/tmux/mu-crew.conf"
+check "@mu_crew_ascii picks ASCII glyphs" "$(tmux show -gv @mu_crew_g_blocked)" "!"
+tmux set -gu @mu_crew_ascii
+tmux source-file "$root/tmux/mu-crew.conf"
+check "default glyphs are Nerd Font" "$(tmux show -gv @mu_crew_g_blocked)" $'\uf075'
+
+# --- cheap tick --------------------------------------------------------------------
+# A status line redraws on every pane, window and session event, not just on
+# status-interval; anything it runs, it runs per redraw. The formats must be
+# pure tmux format: no #(...) command, which here would mean a Node start.
+check "no format option runs a command per redraw" \
+	"$(grep -E '^set -g @mu_crew_' "$root/tmux/mu-crew.conf" | grep -c '#(')" 0
+check "the config sets no status line" \
+	"$(grep -cE '^set(-option)? .*status-(left|right|format)' "$root/tmux/mu-crew.conf")" 0
 
 # --- remote poller --------------------------------------------------------------
 fake_murmur <<'SH'
