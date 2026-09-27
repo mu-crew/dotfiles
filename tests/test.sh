@@ -16,6 +16,9 @@ printf '#!/bin/sh\nexec %s -S %s "$@"\n' "$real_tmux" "$socket" >"$tmp/bin/tmux"
 chmod +x "$tmp/bin/tmux"
 # A PATH without the real murmur, so the fake below is the only one.
 export PATH="$tmp/bin:/usr/bin:/bin" XDG_STATE_HOME="$tmp/state"
+# Running the suite from inside tmux must not leak our own pane into the
+# isolated server: run-shell there must see no $TMUX_PANE, as in real use.
+unset TMUX TMUX_PANE
 
 check() {
 	if [[ $2 == "$3" ]]; then
@@ -56,6 +59,23 @@ tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 check "none leaves a key unbound" "$(bound a | wc -l)" 0
 check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
+
+# --- side panel key reaches murmur with a pane ---------------------------------
+# run-shell exports no $TMUX_PANE; murmur sidepanel exits 1 without one. Run the
+# command exactly as bound, and check what the fake murmur received.
+fake_murmur <<SH
+#!/bin/sh
+echo "\$*|\$TMUX_PANE" >"$tmp/murmur-args"
+SH
+tmux set -g @mu_crew_key_pick a
+tmux source-file "$root/tmux/mu-crew.conf"
+wait_for "tmux list-keys -T prefix | grep -q 'murmur sidepanel'" || true
+bound 'C-m' | sed -E 's/^bind-key +-T prefix C-m +//' >"$tmp/cmd.conf"
+tmux source-file -t work "$tmp/cmd.conf"
+wait_for "test -s $tmp/murmur-args" || true
+check "side panel key passes the pane to murmur" \
+	"$(sed -E 's/%[0-9]+$/%N/' "$tmp/murmur-args" 2>/dev/null)" "sidepanel|%N"
+rm -f "$tmp/bin/murmur"
 
 # --- pill ----------------------------------------------------------------------
 check "pill is empty with no agents" "$(tmux display -p '#{E:@mu_crew_pill}')" ""

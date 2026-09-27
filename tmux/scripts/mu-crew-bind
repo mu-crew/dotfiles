@@ -18,10 +18,12 @@ bind "$k" -N "agent picker (murmur)" "$k" \
 	'display-popup -E -w 80% -h 60% "murmur pick"' \
 	'display-message "murmur is not installed"'
 
+# run-shell does not export $TMUX_PANE, and murmur sidepanel needs it to find
+# the window. #{pane_id} is minted by tmux (%N), so it is safe on a sh line.
 k=$(key sidepanel)
 bind "$k" -N "agent side panel (murmur)" "$k" \
 	if-shell 'command -v murmur >/dev/null 2>&1' \
-	'run-shell "murmur sidepanel"' \
+	'run-shell "TMUX_PANE=#{pane_id} murmur sidepanel"' \
 	'display-message "murmur is not installed"'
 
 k=$(key dash)
