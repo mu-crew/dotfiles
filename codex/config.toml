@@ -1,0 +1,11 @@
+# Add to ~/.codex/config.toml. Codex runs this after each turn; murmur records
+# `done` for the pane it runs in, so the agent shows up in murmur's picker,
+# dash and pill. The agent must run inside tmux.
+#
+# Exec murmur directly. `sh -lc '<script>'` alone swallows the event JSON Codex
+# appends: it lands in $0, not $1.
+notify = ["murmur", "notify", "--source", "codex"]
+
+# If murmur is not on the PATH Codex inherits, use the absolute path from
+# `command -v murmur`, or forward the argument explicitly:
+# notify = ["/bin/sh", "-lc", "exec murmur notify --source codex \"$@\"", "codex-notify"]

@@ -1,0 +1,36 @@
+#!/bin/sh
+# Bind mu-crew's keys from @mu_crew_key_*. Run by mu-crew.conf at source time.
+# A key set to "none" is left unbound (tmux treats an empty option as unset,
+# so "" cannot mean "off" there).
+dir=$(cd "$(dirname "$0")" && pwd)
+
+key() { tmux show-option -gqv "@mu_crew_key_$1"; }
+
+bind() {
+	k=$1
+	shift
+	[ -n "$k" ] && [ "$k" != none ] && tmux bind-key "$@"
+}
+
+k=$(key pick)
+bind "$k" -N "agent picker (murmur)" "$k" \
+	if-shell 'command -v murmur >/dev/null 2>&1' \
+	'display-popup -E -w 80% -h 60% "murmur pick"' \
+	'display-message "murmur is not installed"'
+
+k=$(key sidepanel)
+bind "$k" -N "agent side panel (murmur)" "$k" \
+	if-shell 'command -v murmur >/dev/null 2>&1' \
+	'run-shell "murmur sidepanel"' \
+	'display-message "murmur is not installed"'
+
+k=$(key dash)
+bind "$k" -N "go to the murmur dash" "$k" \
+	if-shell 'command -v murmur >/dev/null 2>&1' \
+	'run-shell -b "murmur dash --goto"' \
+	'display-message "murmur is not installed"'
+
+k=$(key workstream)
+bind "$k" -N "mu workstream <-> workspace picker" "$k" \
+	run-shell -b "'$dir/mu-workstream-pick'"
+true

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Toggle between a workspace session and its mu workstream session.
+#
+# mu names a workstream's tmux session `mu-<name>`. From a workspace session
+# this lists mu- sessions; from a mu- session it lists workspaces. The likely
+# counterpart (same basename) goes first, the rest by recent activity.
+set -euo pipefail
+
+current=$(tmux display-message -p '#S')
+if [[ $current == mu-* ]]; then
+	mu=0 want=${current#mu-} kind=workspace
+else
+	mu=1 want=mu-${current##*/} kind='mu workstream'
+fi
+
+sessions=$(
+	tmux list-sessions -F $'#{session_activity}\t#{session_name}' |
+		sort -rn |
+		awk -F '\t' -v mu="$mu" -v want="$want" '
+			($2 ~ /^mu-/) == mu {
+				base = $2; sub(/.*\//, "", base)
+				if (base == want) print $2; else rest[++n] = $2
+			}
+			END { for (i = 1; i <= n; i++) print rest[i] }'
+)
+
+if [[ -z $sessions ]]; then
+	tmux display-message "No $kind sessions"
+	exit 0
+fi
+
+# One candidate needs no picker.
+if [[ $(wc -l <<<"$sessions") -eq 1 ]]; then
+	tmux switch-client -t "=$sessions"
+	exit 0
+fi
+
+list=$(mktemp)
+out=$(mktemp)
+trap 'rm -f "$list" "$out"' EXIT
+printf '%s\n' "$sessions" >"$list"
+
+# The popup runs fzf; its choice comes back through a file because
+# display-popup does not return the command's output.
+tmux display-popup -E -w 80% -h 75% \
+	"fzf --no-sort --no-multi --exit-0 --prompt='$kind> ' \
+		--header='current: $current · likely: $want' <'$list' >'$out'" || exit 0
+
+choice=$(<"$out")
+[[ -n $choice ]] && tmux switch-client -t "=$choice"

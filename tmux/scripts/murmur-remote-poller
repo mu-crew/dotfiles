@@ -1,0 +1,108 @@
+#!/bin/sh
+# Keep @mu_crew_remote_<state> current with remote peers' agent counts.
+#
+# murmur already publishes this host's counts as @murmur_count_<state>. Remote
+# peers need `murmur status --json`, a Node start, so this runs it at most once
+# per interval in one background loop instead of on every status redraw.
+#
+#   murmur-remote-poller --ensure   start the loop unless one is running
+#   murmur-remote-poller --once     one poll, for tests and debugging
+#
+# The loop exits when murmur is missing, when its tmux server goes away, or
+# when murmur has no peers; sourcing the config again restarts it.
+set -u
+
+INTERVAL=${MU_CREW_POLL_SECS:-10}
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/mu-crew
+# One loop per tmux server: the socket path names the server.
+SERVER=$(tmux display-message -p '#{socket_path}' 2>/dev/null | tr '/' '_')
+PID_FILE="$STATE_DIR/poller$SERVER.pid"
+
+# Remote counts only, crew kept apart, same crew rule as `murmur status`:
+# crew agents count only when blocked or crashed. Prints `<state> <n>` lines,
+# then `peers <n>`.
+remote_counts() {
+	murmur status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    view = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+tmux_name = {"running": "working"}
+counts = {s: 0 for s in ("crashed", "blocked", "done", "working", "idle")}
+crew = 0
+for pane in view.get("panes", []):
+    if pane.get("local"):
+        continue
+    attention = {a.get("kind") for a in pane.get("attention", [])}
+    state = next((k for k in ("crashed", "blocked", "done") if k in attention), None)
+    state = state or ("working" if pane.get("activity") == "running" else "idle")
+    if pane.get("driver", "human") == "human":
+        counts[state] += 1
+    else:
+        crew += 1
+        if state in ("crashed", "blocked"):
+            counts[state] += 1
+for state, n in counts.items():
+    print(state, n)
+print("crew", crew)
+print("peers", len(view.get("peers", [])))
+'
+}
+
+publish() {
+	args=""
+	peers=0
+	while read -r name n; do
+		if [ "$name" = peers ]; then
+			peers=$n
+			continue
+		fi
+		if [ "$n" -gt 0 ] 2>/dev/null; then
+			args="$args set-option -gq @mu_crew_remote_$name $n ;"
+		else
+			args="$args set-option -gqu @mu_crew_remote_$name ;"
+		fi
+	done
+	# Word splitting is the point: one tmux call, `;`-separated commands.
+	# shellcheck disable=SC2086
+	[ -n "$args" ] && tmux $args refresh-client -S 2>/dev/null
+	[ "$peers" -gt 0 ] || return 3
+}
+
+# 0 polled, 1 transient failure, 2 no murmur, 3 no peers.
+once() {
+	command -v murmur >/dev/null 2>&1 || return 2
+	counts=$(remote_counts) || return 1
+	printf '%s\n' "$counts" | publish
+}
+
+loop() {
+	echo $$ >"$PID_FILE"
+	while tmux has-session 2>/dev/null; do
+		once
+		case $? in
+		2 | 3) break ;;
+		esac
+		sleep "$INTERVAL"
+	done
+	rm -f "$PID_FILE"
+}
+
+case ${1:-} in
+--once)
+	once
+	;;
+--ensure)
+	mkdir -p "$STATE_DIR"
+	pid=$(cat "$PID_FILE" 2>/dev/null || true)
+	if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+		exit 0
+	fi
+	loop </dev/null >/dev/null 2>&1 &
+	;;
+*)
+	echo "usage: $0 --ensure | --once" >&2
+	exit 2
+	;;
+esac
