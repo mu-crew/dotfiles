@@ -6,6 +6,21 @@ dir=$(cd "$(dirname "$0")" && pwd)
 
 key() { tmux show-option -gqv "@mu_crew_key_$1"; }
 
+# @mu_crew_keys off: unbind what this script binds, so re-sourcing with the
+# part off removes it. Only keys still bound to a mu-crew command are touched.
+if [ "$(tmux show-option -gqv @mu_crew_keys)" = off ]; then
+	for name in pick sidepanel dash workstream; do
+		k=$(key "$name")
+		[ -n "$k" ] && [ "$k" != none ] || continue
+		# `list-keys -T prefix <key>` prints nothing on tmux 3.7; read the table.
+		tmux list-keys -T prefix |
+			awk -v k="$k" '$3 == "prefix" && $4 == k' |
+			grep -qE 'murmur|mu-workstream-pick' &&
+			tmux unbind-key -T prefix "$k"
+	done
+	exit 0
+fi
+
 bind() {
 	k=$1
 	shift

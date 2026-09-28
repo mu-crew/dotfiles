@@ -304,6 +304,8 @@ def loop(pid_file: Path) -> int:
             dropped = [name for name in due if name not in enabled]
             if dropped:
                 publish({option: "" for name in dropped for option in OWNED[name]})
+            if not enabled:
+                break
             due = {name: due.get(name, 0.0) for name in enabled}
             ready = [name for name, deadline in due.items() if now >= deadline]
             if ready:
@@ -317,6 +319,11 @@ def loop(pid_file: Path) -> int:
 
 
 def ensure() -> int:
+    # "none" (or only unknown names): nothing to poll, so start nothing. A
+    # running loop sees the same list on its next round, clears what its
+    # probes published, and exits.
+    if not probes():
+        return 0
     pid_file = socket_pid_file()
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     while True:

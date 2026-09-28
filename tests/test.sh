@@ -60,6 +60,36 @@ wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 check "none leaves a key unbound" "$(bound a | wc -l)" 0
 check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
 
+# --- part flags ---------------------------------------------------------------------
+# Each part is on by default; "off" before sourcing skips it, and sourcing again
+# with it off removes what it set.
+tmux set -gu @mu_crew_key_pick
+tmux source-file "$root/tmux/mu-crew.conf"
+wait_for "tmux list-keys -T prefix | grep -q 'murmur pick'" || true
+check "hooks on by default" "$(tmux show-hooks -g | grep -c '\[42\]')" 3
+check "keys on by default" "$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream')" 4
+tmux set -g @mu_crew_hooks off
+tmux set -g @mu_crew_keys off
+tmux set -g @mu_crew_pane_border off
+tmux source-file "$root/tmux/mu-crew.conf"
+wait_for "! tmux list-keys -T prefix | grep -qE 'murmur|mu-workstream'" || true
+check "hooks off removes the hooks" "$(tmux show-hooks -g | grep -c '\[42\]')" 0
+check "keys off unbinds mu-crew's keys" "$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream')" 0
+check "pane border off resets our format" "$(tmux show -gv pane-border-format | grep -c mu_crew_pane_glyph)" 0
+tmux set -g pane-border-format mine
+tmux source-file "$root/tmux/mu-crew.conf"
+check "pane border off leaves a user format alone" "$(tmux show -gv pane-border-format)" mine
+tmux set -g @mu_crew_session_keys off
+tmux set -g @tsesh_key_pick X
+tmux source-file "$root/tmux/mu-crew.conf"
+check "session keys off leaves tsesh options alone" "$(tmux show -gv @tsesh_key_pick)" X
+for flag in hooks keys pane_border session_keys; do tmux set -gu "@mu_crew_$flag"; done
+tmux set -gu pane-border-format
+tmux source-file "$root/tmux/mu-crew.conf"
+wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
+check "parts come back when the flags are cleared" \
+	"$(tmux show-hooks -g | grep -c '\[42\]') $(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream') $(tmux show -gv @tsesh_key_pick)" "3 4 s"
+
 # --- tsesh key forwarding --------------------------------------------------------
 check "session keys forward to tsesh" \
 	"$(tmux show -gv @tsesh_key_pick) $(tmux show -gv @tsesh_key_last) $(tmux show -gv @tsesh_key_root)" "s g T"
@@ -159,6 +189,10 @@ check "a non-numeric interval does not kill the loop" "$rc" 0
 tmux set -g @mu_crew_probes 'cpu'
 wait_for "test -z \"\$(tmux show -gqv @mu_crew_mem)\"" && rc=0 || rc=1
 check "dropping a probe clears its options" "$rc" 0
+tmux set -g @mu_crew_probes none
+wait_for "! kill -0 $loop_pid" 30 && rc=0 || rc=1
+check "probes none stops the loop" "$rc" 0
+check "probes none clears the last probe's options" "$(tmux show -gqv @mu_crew_cpu)" ""
 kill "$loop_pid" 2>/dev/null; wait "$loop_pid" 2>/dev/null || true
 tmux set -gu @mu_crew_cpu_interval
 

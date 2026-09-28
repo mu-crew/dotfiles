@@ -40,6 +40,26 @@ you update murmur: both sides read the same tmux options.
 
 ## What sourcing it does
 
+Each part below is on by default. Set its flag to `off` before sourcing to skip
+it; sourcing again with a flag off removes what that part set.
+
+| Flag | Part |
+| --- | --- |
+| `@mu_crew_hooks` | Focus hooks |
+| `@mu_crew_keys` | `a` / `C-m` / `G` / `u` |
+| `@mu_crew_session_keys` | Forwarding `s` / `g` / `T` to tsesh |
+| `@mu_crew_pane_border` | Pane border format |
+| `@mu_crew_probes` | Poller probes; `none` runs no poller (see [Poller and probes](#poller-and-probes)) |
+
+```tmux
+set -g @mu_crew_keys off
+set -g @mu_crew_pane_border off
+source-file ~/.local/share/mu-crew-dotfiles/tmux/mu-crew.conf
+```
+
+The formats (pill, glyphs, pills from probes) need no flag: they do nothing
+until you place them.
+
 **Focus hooks.** Selecting an agent's pane, window or session runs
 `murmur clear` for that pane, which acknowledges a `done` or `blocked` badge.
 Without these a badge never clears. They use hook index 42, so hooks you set
@@ -63,7 +83,7 @@ side panel too.
 
 **Pane border.** mu titles each agent's pane with the agent name and its tasks;
 the border shows that title plus murmur's live state. To keep your own
-`pane-border-format`, set `@mu_crew_keep_pane_border 1` before sourcing and add
+`pane-border-format`, set `@mu_crew_pane_border off` before sourcing and add
 `#{E:@mu_crew_pane_glyph}` to your format.
 
 **Poller.** One background Python process per tmux server keeps the enabled
