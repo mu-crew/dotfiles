@@ -74,7 +74,11 @@ tmux set -gu @mu_crew_key_session_last
 # command exactly as bound, and check what the fake murmur received.
 fake_murmur <<SH
 #!/bin/sh
-echo "\$*|\$TMUX_PANE" >"$tmp/murmur-args"
+if [ "\$1" = sidepanel ]; then
+	echo "\$*|\$TMUX_PANE" >"$tmp/murmur-args"
+else
+	echo '{"peers": [], "panes": []}'
+fi
 SH
 tmux set -g @mu_crew_key_pick a
 tmux source-file "$root/tmux/mu-crew.conf"
@@ -111,6 +115,20 @@ tmux set -gu @mu_crew_ascii
 tmux source-file "$root/tmux/mu-crew.conf"
 check "default glyphs are Nerd Font" "$(tmux show -gv @mu_crew_g_blocked)" $'\uf075'
 
+# --- opt-in probes ---------------------------------------------------------------
+check "default probes preserve remote-only behavior" "$(tmux show -gv @mu_crew_probes)" murmur_remote
+tmux set -g @mu_crew_mem 76
+tmux set -g @mu_crew_mem_text '76%'
+check "memory pill renders the published value" "$(tmux display -p -- '#{E:@mu_crew_mem_pill}' | grep -c 'MEM 76%')" 1
+tmux set -g @mu_crew_mem_min 76
+check "memory threshold is show-only-above" "$(tmux display -p '#{E:@mu_crew_mem_pill}')" ""
+tmux set -g @mu_crew_cpu 42
+tmux set -g @mu_crew_cpu_text '42%'
+check "cpu pill uses its colour option" "$(tmux display -p -- '#{E:@mu_crew_cpu_pill}' | grep -c '#\[fg=#a6adc8\]CPU 42%')" 1
+tmux set -g @mu_crew_uptime_value 90061
+tmux set -g @mu_crew_uptime_text '1d 1h'
+check "uptime format renders the published text" "$(tmux display -p '#{E:@mu_crew_uptime}' | grep -c '1d 1h')" 1
+
 # --- cheap tick --------------------------------------------------------------------
 # A status line redraws on every pane, window and session event, not just on
 # status-interval; anything it runs, it runs per redraw. The formats must be
@@ -120,7 +138,15 @@ check "no format option runs a command per redraw" \
 check "the config sets no status line" \
 	"$(grep -cE '^set(-option)? .*status-(left|right|format)' "$root/tmux/mu-crew.conf")" 0
 
-# --- remote poller --------------------------------------------------------------
+# --- poller ---------------------------------------------------------------------
+tmux set -g @mu_crew_probes 'memory cpu uptime'
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
+check "local probes succeed" "$rc" 0
+check "memory probe publishes a percentage" "$(tmux show -gv @mu_crew_mem | grep -Ec '^[0-9]+$')" 1
+check "cpu probe publishes a percentage" "$(tmux show -gv @mu_crew_cpu | grep -Ec '^[0-9]+$')" 1
+check "uptime probe publishes text" "$(tmux show -gv @mu_crew_uptime_text | grep -Ec '^[0-9]+[dhm]')" 1
+
+tmux set -g @mu_crew_probes murmur_remote
 fake_murmur <<'SH'
 #!/bin/sh
 cat <<'JSON'
@@ -135,7 +161,7 @@ cat <<'JSON'
 JSON
 SH
 tmux set -gu @mu_crew_remote_blocked
-"$root/tmux/scripts/murmur-remote-poller" --once && rc=0 || rc=$?
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
 check "poll with peers succeeds" "$rc" 0
 check "remote working counted" "$(tmux show -gv @mu_crew_remote_working)" 1
 check "remote crashed counted" "$(tmux show -gv @mu_crew_remote_crashed)" 1
@@ -147,12 +173,12 @@ fake_murmur <<'SH'
 #!/bin/sh
 echo '{"counts": {}, "orchestrated_counts": {}, "peers": [], "panes": []}'
 SH
-"$root/tmux/scripts/murmur-remote-poller" --once && rc=0 || rc=$?
-check "no peers stops the loop" "$rc" 3
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
+check "no peers stops the remote probe" "$rc" 3
 check "no peers clears remote counts" "$(tmux show -gqv @mu_crew_remote_working)" ""
 
 rm "$tmp/bin/murmur"
-"$root/tmux/scripts/murmur-remote-poller" --once && rc=0 || rc=$?
-check "no murmur stops the loop" "$rc" 2
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
+check "no murmur stops the remote probe" "$rc" 2
 
 exit $fail

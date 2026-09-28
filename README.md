@@ -16,7 +16,7 @@ yours; you place the pieces where you want them.
   installed" and the formats stay empty.
 - A [Nerd Font](https://www.nerdfonts.com) for the default glyphs. No Nerd
   Font? See [Glyphs](#glyphs).
-- `fzf` for the workstream picker, `python3` for the remote poller.
+- `fzf` for the workstream picker, Python 3.11 or newer for the poller.
 
 ## Install
 
@@ -66,8 +66,8 @@ the border shows that title plus murmur's live state. To keep your own
 `pane-border-format`, set `@mu_crew_keep_pane_border 1` before sourcing and add
 `#{E:@mu_crew_pane_glyph}` to your format.
 
-**Remote poller.** If murmur has peers, a small background loop keeps remote
-agents' counts in the pill. See [Why the pill costs nothing](#why-the-pill-costs-nothing).
+**Poller.** One background Python process per tmux server keeps the enabled
+remote, memory, CPU, and uptime options current. See [Poller and probes](#poller-and-probes).
 
 ## Formats you place
 
@@ -76,6 +76,9 @@ agents' counts in the pill. See [Why the pill costs nothing](#why-the-pill-costs
 | `@mu_crew_pill` | Robot icon, then `<count><glyph>` per state, most urgent first, then the crew total. Empty when no agents exist. | `@murmur_count_*`, `@mu_crew_remote_*` |
 | `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news | `@murmur_window_state` |
 | `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state | `@murmur_pane_state` |
+| `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |
+| `@mu_crew_cpu_pill` | CPU use | `@mu_crew_cpu` |
+| `@mu_crew_uptime` | Compact system uptime | `@mu_crew_uptime_*` |
 
 Read them through `#{E:...}` so the colour runs inside apply. They set no
 background, so they take the background of wherever you place them.
@@ -107,6 +110,38 @@ To change one glyph or colour, set its option after sourcing:
 (Catppuccin Mocha by default). The defaults sit between `THEME BEGIN` /
 `THEME END` markers, so a theme generator can rewrite them.
 
+## Poller and probes
+
+The poller defaults to remote murmur counts, so an existing setup does not
+start new system probes. To enable more probes, set the space-separated list
+before sourcing the config:
+
+```tmux
+set -g @mu_crew_probes "murmur_remote memory cpu uptime"
+source-file ~/.local/share/mu-crew-dotfiles/tmux/mu-crew.conf
+
+set -ag status-right '#{E:@mu_crew_mem_pill}'
+set -ag status-right '#{E:@mu_crew_cpu_pill}'
+set -ag status-right '#{E:@mu_crew_uptime}'
+```
+
+Each probe has its own interval. Set `@mu_crew_<probe>_interval` in seconds to
+change it. The defaults are 10 seconds for `murmur_remote`, 5 seconds for
+`memory` and `cpu`, and 60 seconds for `uptime`.
+
+Set `@mu_crew_mem_min`, `@mu_crew_cpu_min`, or `@mu_crew_uptime_min` to show a
+format only above that value. Memory and CPU thresholds are percentages. The
+uptime threshold is seconds. The formats use `@mu_crew_c_mem`,
+`@mu_crew_c_cpu`, and `@mu_crew_c_uptime` for their colours.
+
+Linux memory reports used memory from `/proc/meminfo`. macOS memory reports a
+pressure score from `vm_stat` and `memory_pressure`, including compression and
+swap rates. CPU uses `/proc/stat` deltas on Linux and `top` on macOS.
+
+The pid file is keyed by the tmux socket path. The loop exits when that tmux
+server exits. Run `tmux/scripts/mu-crew-poller --once` to update enabled probes
+once for tests or debugging.
+
 ## Why the pill costs nothing
 
 tmux redraws the status line on every pane, window and session event, not only
@@ -118,12 +153,10 @@ So nothing here runs on a redraw:
 
 - murmur writes this host's counts into `@murmur_count_<state>` whenever an
   agent's state changes. The pill is tmux format arithmetic over those options.
-- Remote peers' counts come from `tmux/scripts/murmur-remote-poller`: one loop
-  per tmux server, started when the config is sourced, running
-  `murmur status --json` every 10 seconds (`MU_CREW_POLL_SECS`) and writing
-  `@mu_crew_remote_<state>` only through tmux options. It exits when murmur has
-  no peers, when murmur is missing, or when the tmux server stops; sourcing the
-  config again restarts it.
+- Remote peers' counts come from `tmux/scripts/mu-crew-poller`: one loop per
+  tmux server, started when the config is sourced. It runs `murmur status
+  --json` every 10 seconds and writes `@mu_crew_remote_<state>` through tmux
+  options. No peers or no murmur stops that probe without stopping other probes.
 
 Keep it that way when you extend the config. A new format reads options; if it
 needs data from a program, a long-lived loop writes the data into an option.
@@ -162,8 +195,9 @@ tests/test.sh
 
 Runs against an isolated tmux server with a fake `murmur` on `PATH`: keys and
 the `none` opt-out, the side panel key, glyph defaults and ASCII, the pill and
-window formats, the cheap-tick rule, and the remote poller's counting and exit
-codes.
+window formats, the cheap-tick rule, probe formats, local probes, remote
+counting, and exit codes. `python3 tests/test_poller.py` covers the parsers and
+probe calculations.
 
 ## Related
 

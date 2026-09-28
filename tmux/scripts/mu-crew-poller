@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+"""Publish slow system and murmur probes as tmux options."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+STATES = ("crashed", "blocked", "done", "working", "idle")
+INTERVALS = {"murmur_remote": 10.0, "memory": 5.0, "cpu": 5.0, "uptime": 60.0}
+
+
+def run(command: list[str]) -> str:
+    return subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL)
+
+
+def tmux(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["tmux", *args], text=True, capture_output=True)
+
+
+def option(name: str, default: str = "") -> str:
+    result = tmux("show-option", "-gqv", name)
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else default
+
+
+def socket_path() -> str:
+    return tmux("display-message", "-p", "#{socket_path}").stdout.strip()
+
+
+def clamp(value: float) -> int:
+    return round(max(0.0, min(100.0, value)))
+
+
+def ramp(value: float, start: float, end: float) -> int:
+    if value <= start:
+        return 0
+    if value >= end:
+        return 100
+    return clamp((value - start) / (end - start) * 100)
+
+
+def parse_vm_stat(output: str) -> tuple[int, dict[str, int]]:
+    match = re.search(r"page size of (\d+) bytes", output)
+    if match is None:
+        raise ValueError("could not parse vm_stat page size")
+    counts = {}
+    for line in output.splitlines():
+        item = re.match(r'^"?([^":]+)"?:\s+(\d+)\.$', line.strip())
+        if item:
+            counts[item.group(1)] = int(item.group(2))
+    return int(match.group(1)), counts
+
+
+def parse_memory_pressure(output: str) -> dict[str, int]:
+    values = {}
+    pages = re.search(r"(?:\(|has )(\d+) pages with a page size of (\d+)", output)
+    if pages:
+        values.update(total_pages=int(pages.group(1)), page_size=int(pages.group(2)))
+    for source, target in (("free", "free_percentage"), ("pressure", "pressure_percentage")):
+        match = re.search(rf"System-wide memory {source} percentage:\s+(\d+)%", output)
+        if match:
+            values[target] = int(match.group(1))
+    return values
+
+
+def darwin_memory_score(
+    vm_output: str,
+    pressure_output: str,
+    previous: dict[str, float] | None,
+    now: float | None = None,
+) -> tuple[int, dict[str, float]]:
+    page_size, counts = parse_vm_stat(vm_output)
+    pressure = parse_memory_pressure(pressure_output)
+    page_size = pressure.get("page_size", page_size)
+    total = pressure.get("total_pages") or sum(
+        counts.get(key, 0)
+        for key in (
+            "Pages free", "Pages active", "Pages inactive", "Pages speculative",
+            "Pages wired down", "Pages occupied by compressor",
+        )
+    )
+    if total <= 0:
+        raise ValueError("could not derive total pages")
+    available = (counts.get("Pages free", 0) + counts.get("Pages speculative", 0)
+                 + counts.get("Pages purgeable", 0) + counts.get("File-backed pages", 0)) / total
+    wired = counts.get("Pages wired down", 0) / total
+    compressed = counts.get("Pages occupied by compressor", 0) / total
+    if "pressure_percentage" in pressure:
+        headroom = pressure["pressure_percentage"]
+    elif "free_percentage" in pressure:
+        headroom = clamp((100 - pressure["free_percentage"]) * 0.45)
+    else:
+        headroom = ramp(0.5 - available, 0.0, 0.5)
+
+    now = time.time() if now is None else now
+    old = previous or {}
+    elapsed = max(0.001, now - old.get("ts", now))
+    rates = {}
+    for name, key in (("compressions", "Compressions"), ("pageouts", "Pageouts"), ("swapouts", "Swapouts")):
+        current = counts.get(key, 0)
+        rates[name] = max(0.0, (current - old.get(name, current)) / elapsed)
+    compression = rates["compressions"] * page_size / 1048576
+    eviction = (rates["pageouts"] + rates["swapouts"]) * page_size / 1048576
+    swap_score = ramp(eviction, 0.5, 24.0)
+    score = clamp(headroom * 0.45 + ramp(wired, 0.16, 0.42) * 0.2
+                  + ramp(compressed, 0.02, 0.16) * 0.15
+                  + max(ramp(compression, 4.0, 64.0), swap_score) * 0.2)
+    if swap_score >= 90:
+        score = max(score, 90)
+    elif swap_score >= 75:
+        score = max(score, 75)
+    state = {"ts": now, "compressions": counts.get("Compressions", 0),
+             "pageouts": counts.get("Pageouts", 0), "swapouts": counts.get("Swapouts", 0)}
+    return score, state
+
+
+def parse_meminfo(output: str) -> int:
+    values = {key: int(value) for key, value in re.findall(r"^(\w+):\s+(\d+)", output, re.M)}
+    return round((values["MemTotal"] - values.get("MemAvailable", values["MemFree"])) / values["MemTotal"] * 100)
+
+
+def parse_proc_stat_cpu(before: str, after: str) -> int:
+    def counters(text: str) -> list[int]:
+        return [int(value) for value in text.splitlines()[0].split()[1:]]
+    first, second = counters(before), counters(after)
+    delta = [new - old for old, new in zip(first, second)]
+    total = sum(delta)
+    idle = sum(delta[index] for index in (3, 4) if index < len(delta))
+    return round((total - idle) / total * 100) if total else 0
+
+
+def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
+    counts = {state: 0 for state in STATES}
+    crew = 0
+    for pane in view.get("panes", []):
+        if pane.get("local"):
+            continue
+        attention = {item.get("kind") for item in pane.get("attention", [])}
+        state = next((name for name in ("crashed", "blocked", "done") if name in attention), None)
+        state = state or ("working" if pane.get("activity") == "running" else "idle")
+        if pane.get("driver", "human") == "human":
+            counts[state] += 1
+        else:
+            crew += 1
+            if state in ("crashed", "blocked"):
+                counts[state] += 1
+    return {**counts, "crew": crew}, len(view.get("peers", []))
+
+
+class Poller:
+    def __init__(self) -> None:
+        self.memory_state: dict[str, float] | None = None
+        self.cpu_state: str | None = None
+        self.remote_active = True
+
+    def murmur_remote(self) -> tuple[dict[str, str], int]:
+        if not self.remote_active:
+            return {}, 3
+        try:
+            view = json.loads(run(["murmur", "status", "--json"]))
+        except FileNotFoundError:
+            self.remote_active = False
+            return {}, 2
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            return {}, 1
+        counts, peers = remote_counts(view)
+        if not peers:
+            self.remote_active = False
+        return {f"@mu_crew_remote_{name}": str(value) if value else "" for name, value in counts.items()}, 0 if peers else 3
+
+    def memory(self) -> tuple[dict[str, str], int]:
+        if platform.system() == "Darwin":
+            value, self.memory_state = darwin_memory_score(run(["vm_stat"]), run(["memory_pressure"]), self.memory_state)
+        else:
+            value = parse_meminfo(Path("/proc/meminfo").read_text())
+        return {"@mu_crew_mem": str(value), "@mu_crew_mem_text": f"{value}%"}, 0
+
+    def cpu(self) -> tuple[dict[str, str], int]:
+        if platform.system() == "Darwin":
+            output = run(["top", "-l", "2", "-n", "0"])
+            idle = re.findall(r"CPU usage:.*?([\d.]+)% idle", output)
+            value = round(100 - float(idle[-1]))
+        else:
+            current = Path("/proc/stat").read_text()
+            if self.cpu_state is None:
+                time.sleep(0.1)
+                self.cpu_state = current
+                current = Path("/proc/stat").read_text()
+            value = parse_proc_stat_cpu(self.cpu_state, current)
+            self.cpu_state = current
+        return {"@mu_crew_cpu": str(value), "@mu_crew_cpu_text": f"{value}%"}, 0
+
+    def uptime(self) -> tuple[dict[str, str], int]:
+        if platform.system() == "Darwin":
+            boot = int(re.search(r"sec = (\d+)", run(["sysctl", "-n", "kern.boottime"])).group(1))
+            seconds = int(time.time()) - boot
+        else:
+            seconds = int(float(Path("/proc/uptime").read_text().split()[0]))
+        days, remainder = divmod(seconds, 86400)
+        hours, minutes = divmod(remainder, 3600)[0], divmod(remainder % 3600, 60)[0]
+        text = f"{days}d {hours}h" if days else (f"{hours}h {minutes}m" if hours else f"{minutes}m")
+        return {"@mu_crew_uptime_value": str(seconds), "@mu_crew_uptime_text": text}, 0
+
+
+def publish(values: dict[str, str]) -> bool:
+    changed = False
+    for name, value in values.items():
+        if option(name) == value:
+            continue
+        args = ("set-option", "-gq", name, value) if value else ("set-option", "-gqu", name)
+        if tmux(*args).returncode == 0:
+            changed = True
+    if changed:
+        tmux("refresh-client", "-S")
+    return changed
+
+
+def probes() -> list[str]:
+    enabled = option("@mu_crew_probes", "murmur_remote").split()
+    return [name for name in enabled if name in INTERVALS]
+
+
+def poll_once(worker: Poller, enabled: list[str]) -> int:
+    values = {}
+    result = 0
+    for name in enabled:
+        try:
+            update, code = getattr(worker, name)()
+            values.update(update)
+            if len(enabled) == 1:
+                result = code
+        except (OSError, ValueError, KeyError, AttributeError):
+            result = 1
+    publish(values)
+    return result
+
+
+def socket_pid_file() -> Path:
+    key = hashlib.sha256(socket_path().encode()).hexdigest()[:16]
+    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "mu-crew" / f"poller-{key}.pid"
+
+
+def loop(pid_file: Path) -> int:
+    worker = Poller()
+    due: dict[str, float] = {}
+    pid_file.write_text(str(os.getpid()))
+    try:
+        while tmux("has-session").returncode == 0:
+            now = time.monotonic()
+            enabled = probes()
+            due = {name: due.get(name, 0.0) for name in enabled}
+            ready = [name for name, deadline in due.items() if now >= deadline]
+            if ready:
+                poll_once(worker, ready)
+                for name in ready:
+                    interval = float(option(f"@mu_crew_{name}_interval", str(INTERVALS[name])))
+                    due[name] = now + max(0.1, interval)
+            time.sleep(max(0.1, min(1.0, min(due.values(), default=now + 1) - time.monotonic())))
+    finally:
+        pid_file.unlink(missing_ok=True)
+    return 0
+
+
+def ensure() -> int:
+    pid_file = socket_pid_file()
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            descriptor = os.open(pid_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            try:
+                os.kill(int(pid_file.read_text()), 0)
+                return 0
+            except (ValueError, ProcessLookupError, PermissionError):
+                pid_file.unlink(missing_ok=True)
+    try:
+        process = subprocess.Popen([sys.executable, __file__, "--loop"], stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        os.write(descriptor, str(process.pid).encode())
+    finally:
+        os.close(descriptor)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--once", action="store_true")
+    group.add_argument("--ensure", action="store_true")
+    group.add_argument("--loop", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.once:
+        return poll_once(Poller(), probes())
+    if args.ensure:
+        return ensure()
+    return loop(socket_pid_file())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
