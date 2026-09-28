@@ -60,6 +60,15 @@ wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 check "none leaves a key unbound" "$(bound a | wc -l)" 0
 check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
 
+# --- tsesh key forwarding --------------------------------------------------------
+check "session keys forward to tsesh" \
+	"$(tmux show -gv @tsesh_key_pick) $(tmux show -gv @tsesh_key_last) $(tmux show -gv @tsesh_key_root)" "s g T"
+tmux set -g @mu_crew_key_session_last none
+tmux source-file "$root/tmux/mu-crew.conf"
+check "none forwards as empty, so tsesh leaves it unbound" "$(tmux show -gv @tsesh_key_last)" ""
+check "mu-crew binds no session key itself" "$(tmux list-keys -T prefix | grep -c tsesh)" 0
+tmux set -gu @mu_crew_key_session_last
+
 # --- side panel key reaches murmur with a pane ---------------------------------
 # run-shell exports no $TMUX_PANE; murmur sidepanel exits 1 without one. Run the
 # command exactly as bound, and check what the fake murmur received.

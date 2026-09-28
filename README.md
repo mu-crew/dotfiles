@@ -54,9 +54,13 @@ yourself are kept.
 | `G` | Back to the running `murmur dash` | `@mu_crew_key_dash` |
 | `u` | Toggle between a workspace session and its mu workstream session (`mu-<name>`) | `@mu_crew_key_workstream` |
 
+| `s` / `g` / `T` | [tsesh](https://github.com/mu-crew/tmux-session-picker): session picker, last session, session at the pane's directory | `@mu_crew_key_session_{pick,last,root}` |
+
 Set an option before sourcing to move a key, or set it to `none` to leave it
-unbound. Most terminals send the same code for `C-m` and Enter, so
-`prefix Enter` opens the side panel too.
+unbound. The session keys are passed on to tsesh's own options, and tsesh binds
+them, so source this file before TPM runs and nothing is bound twice. Most
+terminals send the same code for `C-m` and Enter, so `prefix Enter` opens the
+side panel too.
 
 **Pane border.** mu titles each agent's pane with the agent name and its tasks;
 the border shows that title plus murmur's live state. To keep your own
@@ -78,7 +82,7 @@ Read them through `#{E:...}` so the colour runs inside apply. They set no
 background, so they take the background of wherever you place them.
 
 murmur also sets `@murmur_session_state` on each session. Session pickers can
-colour rows from it; [tsesh](https://github.com/martintrojer/tmux-session-picker)
+colour rows from it; [tsesh](https://github.com/mu-crew/tmux-session-picker)
 does.
 
 ## Glyphs
@@ -166,5 +170,9 @@ codes.
 
 - [mu-crew](https://github.com/mu-crew): the org, with the stance and design
   rules these files follow.
-- [tsesh](https://github.com/martintrojer/tmux-session-picker): a session
+- [tsesh](https://github.com/mu-crew/tmux-session-picker): a session
   picker that shows murmur's session state.
+
+---
+
+Part of [mu-crew](https://github.com/mu-crew). Written mostly by AI coding agents, with a human reviewing what ships, and built for running them.
