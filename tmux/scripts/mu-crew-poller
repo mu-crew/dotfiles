@@ -273,7 +273,7 @@ def poll_once(worker: Poller, enabled: list[str]) -> int:
             values.update(update)
             if len(enabled) == 1:
                 result = code
-        except (OSError, ValueError, KeyError, AttributeError):
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, AttributeError):
             result = 1
     publish(values)
     return result
@@ -293,12 +293,20 @@ def interval(name: str) -> float:
         return INTERVALS[name]
 
 
+def server_up() -> bool:
+    """The server answers. Not has-session: a server still loading its config
+    has no session yet, and a loop started from that config must not exit."""
+    return tmux("show-options", "-gqv", "@mu_crew_probes").returncode == 0
+
+
 def loop(pid_file: Path) -> int:
     worker = Poller()
     due: dict[str, float] = {}
     pid_file.write_text(str(os.getpid()))
     try:
-        while tmux("has-session").returncode == 0:
+        # A restarted server on the same socket is adopted, not abandoned: its
+        # --ensure saw this loop alive and started none of its own.
+        while server_up():
             now = time.monotonic()
             enabled = probes()
             dropped = [name for name in due if name not in enabled]
@@ -315,6 +323,10 @@ def loop(pid_file: Path) -> int:
             time.sleep(max(0.1, min(1.0, min(due.values(), default=now + 1) - time.monotonic())))
     finally:
         pid_file.unlink(missing_ok=True)
+    # A server that came back between the last check and the unlink ran its
+    # --ensure while this loop still looked alive. Hand over to a fresh loop.
+    if server_up():
+        ensure()
     return 0
 
 
@@ -334,7 +346,7 @@ def ensure() -> int:
             try:
                 os.kill(int(pid_file.read_text()), 0)
                 return 0
-            except (ValueError, ProcessLookupError, PermissionError):
+            except (ValueError, ProcessLookupError, PermissionError, FileNotFoundError):
                 pid_file.unlink(missing_ok=True)
     try:
         process = subprocess.Popen([sys.executable, __file__, "--loop"], stdin=subprocess.DEVNULL,

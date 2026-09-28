@@ -158,9 +158,10 @@ Linux memory reports used memory from `/proc/meminfo`. macOS memory reports a
 pressure score from `vm_stat` and `memory_pressure`, including compression and
 swap rates. CPU uses `/proc/stat` deltas on Linux and `top` on macOS.
 
-The pid file is keyed by the tmux socket path. The loop exits when that tmux
-server exits. Run `tmux/scripts/mu-crew-poller --once` to update enabled probes
-once for tests or debugging.
+The pid file is keyed by the tmux socket path. The loop exits when no tmux
+server answers on that socket; a server restarted on the same socket keeps it.
+Run `tmux/scripts/mu-crew-poller --once` to update enabled probes once for
+tests or debugging.
 
 ## Why the pill costs nothing
 

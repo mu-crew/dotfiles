@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.machinery
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -65,6 +66,25 @@ class ParserTests(unittest.TestCase):
             poller.remote_counts(view),
             ({"crashed": 0, "blocked": 1, "done": 0, "working": 1, "idle": 0, "crew": 2}, 1),
         )
+
+
+class PollOnceTests(unittest.TestCase):
+    def test_a_failing_probe_command_is_a_failed_round_not_a_dead_loop(self):
+        # vm_stat, memory_pressure, top and sysctl can exit non-zero, and
+        # CalledProcessError is not an OSError. Uncaught, it ended the loop and
+        # every pill went blank until the config was sourced again.
+        class Failing:
+            def memory(self):
+                raise subprocess.CalledProcessError(1, ["vm_stat"])
+
+        published = []
+        original = poller.publish
+        poller.publish = published.append
+        try:
+            self.assertEqual(poller.poll_once(Failing(), ["memory"]), 1)
+        finally:
+            poller.publish = original
+        self.assertEqual(published, [{}])
 
 
 if __name__ == "__main__":

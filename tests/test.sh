@@ -193,8 +193,21 @@ tmux set -g @mu_crew_probes none
 wait_for "! kill -0 $loop_pid" 30 && rc=0 || rc=1
 check "probes none stops the loop" "$rc" 0
 check "probes none clears the last probe's options" "$(tmux show -gqv @mu_crew_cpu)" ""
-kill "$loop_pid" 2>/dev/null; wait "$loop_pid" 2>/dev/null || true
+kill "$loop_pid" 2>/dev/null || true; wait "$loop_pid" 2>/dev/null || true
 tmux set -gu @mu_crew_cpu_interval
+
+# A cold start sources the config before any session exists, and a restart
+# finds the previous server's loop still alive. Both must end with a loop
+# publishing to the new server.
+tmux kill-server
+printf 'set -g @mu_crew_probes cpu\nsource-file %s/tmux/mu-crew.conf\nrun-shell "sleep 1"\n' "$root" >"$tmp/cold.conf"
+tmux -f "$tmp/cold.conf" new-session -d -s work
+wait_for "test -n \"\$(tmux show -gqv @mu_crew_cpu)\"" 40 && rc=0 || rc=1
+check "a loop started during config load keeps polling" "$rc" 0
+tmux kill-server
+tmux -f "$tmp/cold.conf" new-session -d -s work
+wait_for "test -n \"\$(tmux show -gqv @mu_crew_cpu)\"" 40 && rc=0 || rc=1
+check "a restarted server gets a loop" "$rc" 0
 
 tmux set -g @mu_crew_probes murmur_remote
 fake_murmur <<'SH'
