@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -17,6 +18,14 @@ from typing import Any
 
 STATES = ("crashed", "blocked", "done", "working", "idle")
 INTERVALS = {"murmur_remote": 10.0, "memory": 5.0, "cpu": 5.0, "uptime": 60.0}
+# Options each probe writes. A probe removed from @mu_crew_probes clears its
+# own, so a pill never keeps showing its last value.
+OWNED = {
+    "murmur_remote": tuple(f"@mu_crew_remote_{name}" for name in (*STATES, "crew")),
+    "memory": ("@mu_crew_mem", "@mu_crew_mem_text"),
+    "cpu": ("@mu_crew_cpu", "@mu_crew_cpu_text"),
+    "uptime": ("@mu_crew_uptime_value", "@mu_crew_uptime_text"),
+}
 
 
 def run(command: list[str]) -> str:
@@ -211,10 +220,36 @@ class Poller:
         return {"@mu_crew_uptime_value": str(seconds), "@mu_crew_uptime_text": text}, 0
 
 
+def current_options() -> dict[str, str] | None:
+    """Every global @mu_crew_* option in one tmux call; None if tmux failed.
+
+    None, not {}: an unreachable server must not look like "all unset", or
+    every value would be rewritten on the next round.
+    """
+    result = tmux("show-options", "-g")
+    if result.returncode != 0:
+        return None
+    values = {}
+    for line in result.stdout.splitlines():
+        name, _, raw = line.partition(" ")
+        if not name.startswith("@mu_crew_"):
+            continue
+        # tmux quotes values with spaces or quotes, shell-style.
+        try:
+            parts = shlex.split(raw)
+        except ValueError:
+            continue
+        values[name] = parts[0] if len(parts) == 1 else raw
+    return values
+
+
 def publish(values: dict[str, str]) -> bool:
+    current = current_options()
+    if current is None:
+        return False
     changed = False
     for name, value in values.items():
-        if option(name) == value:
+        if current.get(name, "") == value:
             continue
         args = ("set-option", "-gq", name, value) if value else ("set-option", "-gqu", name)
         if tmux(*args).returncode == 0:
@@ -249,6 +284,15 @@ def socket_pid_file() -> Path:
     return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "mu-crew" / f"poller-{key}.pid"
 
 
+def interval(name: str) -> float:
+    """@mu_crew_<probe>_interval in seconds; a value that is not a number
+    falls back to the default rather than stalling that probe."""
+    try:
+        return max(0.1, float(option(f"@mu_crew_{name}_interval", str(INTERVALS[name]))))
+    except ValueError:
+        return INTERVALS[name]
+
+
 def loop(pid_file: Path) -> int:
     worker = Poller()
     due: dict[str, float] = {}
@@ -257,13 +301,15 @@ def loop(pid_file: Path) -> int:
         while tmux("has-session").returncode == 0:
             now = time.monotonic()
             enabled = probes()
+            dropped = [name for name in due if name not in enabled]
+            if dropped:
+                publish({option: "" for name in dropped for option in OWNED[name]})
             due = {name: due.get(name, 0.0) for name in enabled}
             ready = [name for name, deadline in due.items() if now >= deadline]
             if ready:
                 poll_once(worker, ready)
                 for name in ready:
-                    interval = float(option(f"@mu_crew_{name}_interval", str(INTERVALS[name])))
-                    due[name] = now + max(0.1, interval)
+                    due[name] = now + interval(name)
             time.sleep(max(0.1, min(1.0, min(due.values(), default=now + 1) - time.monotonic())))
     finally:
         pid_file.unlink(missing_ok=True)

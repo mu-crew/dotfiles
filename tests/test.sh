@@ -35,8 +35,8 @@ fake_murmur() {
 }
 
 # run-shell in the config may still be running when source-file returns.
-wait_for() {
-	for _ in $(seq 50); do
+wait_for() { # $1 = condition, $2 = tries of 0.1s (default 50)
+	for _ in $(seq "${2:-50}"); do
 		eval "$1" >/dev/null 2>&1 && return 0
 		sleep 0.1
 	done
@@ -145,6 +145,22 @@ check "local probes succeed" "$rc" 0
 check "memory probe publishes a percentage" "$(tmux show -gv @mu_crew_mem | grep -Ec '^[0-9]+$')" 1
 check "cpu probe publishes a percentage" "$(tmux show -gv @mu_crew_cpu | grep -Ec '^[0-9]+$')" 1
 check "uptime probe publishes text" "$(tmux show -gv @mu_crew_uptime_text | grep -Ec '^[0-9]+[dhm]')" 1
+
+# The loop, not --once: dropping a probe clears what it published, so a pill
+# does not keep its last value. A bad interval must not stall the probe.
+tmux set -g @mu_crew_probes 'memory cpu'
+tmux set -g @mu_crew_cpu_interval 5s
+"$root/tmux/scripts/mu-crew-poller" --loop &
+loop_pid=$!
+wait_for "test -n \"\$(tmux show -gqv @mu_crew_mem)\"" || true
+sleep 0.5
+kill -0 "$loop_pid" 2>/dev/null && rc=0 || rc=1
+check "a non-numeric interval does not kill the loop" "$rc" 0
+tmux set -g @mu_crew_probes 'cpu'
+wait_for "test -z \"\$(tmux show -gqv @mu_crew_mem)\"" && rc=0 || rc=1
+check "dropping a probe clears its options" "$rc" 0
+kill "$loop_pid" 2>/dev/null; wait "$loop_pid" 2>/dev/null || true
+tmux set -gu @mu_crew_cpu_interval
 
 tmux set -g @mu_crew_probes murmur_remote
 fake_murmur <<'SH'
