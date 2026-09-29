@@ -42,7 +42,7 @@ bind "$k" -N "agent side panel (murmur)" "$k" \
 	'display-message "murmur is not installed"'
 
 k=$(key dash)
-bind "$k" -N "go to the murmur dash" "$k" \
+bind "$k" -N "toggle the murmur dash" "$k" \
 	if-shell 'command -v murmur >/dev/null 2>&1' \
 	'run-shell -b "murmur dash --goto"' \
 	'display-message "murmur is not installed"'

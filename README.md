@@ -71,7 +71,7 @@ yourself are kept.
 | --- | --- | --- |
 | `a` | Agent picker popup, across every machine murmur peers with | `@mu_crew_key_pick` |
 | `C-m` | Toggle murmur's side panel in this window | `@mu_crew_key_sidepanel` |
-| `G` | Back to the running `murmur dash` | `@mu_crew_key_dash` |
+| `G` | Toggle the `murmur dash`: go to it (opening one if none runs), or back from it | `@mu_crew_key_dash` |
 | `u` | Toggle between a workspace session and its mu workstream session (`mu-<name>`) | `@mu_crew_key_workstream` |
 | `s` / `g` / `T` | [tsesh](https://github.com/mu-crew/tmux-session-picker): session picker, last session, session at the pane's directory | `@mu_crew_key_session_{pick,last,root}` |
 
