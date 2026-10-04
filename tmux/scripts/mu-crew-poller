@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-STATES = ("crashed", "blocked", "done", "working", "waiting", "idle")
+STATES = ("crashed", "error", "blocked", "done", "working", "waiting", "idle")
 INTERVALS = {"murmur_remote": 10.0, "memory": 5.0, "cpu": 5.0, "uptime": 60.0}
 # Options each probe writes. A probe removed from @mu_crew_probes clears its
 # own, so a pill never keeps showing its last value.
@@ -154,7 +154,7 @@ def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
         if pane.get("local"):
             continue
         attention = {item.get("kind") for item in pane.get("attention", [])}
-        state = next((name for name in ("crashed", "blocked", "done") if name in attention), None)
+        state = next((name for name in ("crashed", "error", "blocked", "done") if name in attention), None)
         if state is None:
             if pane.get("activity") == "running":
                 state = "working"
@@ -164,7 +164,7 @@ def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
             counts[state] += 1
         else:
             crew += 1
-            if state in ("crashed", "blocked"):
+            if state in ("crashed", "error", "blocked"):
                 counts[state] += 1
     return {**counts, "crew": crew}, len(view.get("peers", []))
 

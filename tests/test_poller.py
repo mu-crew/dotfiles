@@ -61,11 +61,12 @@ class ParserTests(unittest.TestCase):
                 {"local": False, "driver": "orchestrated", "activity": "running", "attention": [{"kind": "blocked"}]},
                 {"local": False, "driver": "orchestrated", "activity": "stopped", "attention": [{"kind": "done"}]},
                 {"local": False, "driver": "human", "activity": "stopped", "pending": 2, "attention": []},
+                {"local": False, "driver": "orchestrated", "activity": "stopped", "attention": [{"kind": "error"}, {"kind": "done"}]},
             ],
         }
         self.assertEqual(
             poller.remote_counts(view),
-            ({"crashed": 0, "blocked": 1, "done": 0, "working": 1, "waiting": 1, "idle": 0, "crew": 2}, 1),
+            ({"crashed": 0, "error": 1, "blocked": 1, "done": 0, "working": 1, "waiting": 1, "idle": 0, "crew": 3}, 1),
         )
 
 
