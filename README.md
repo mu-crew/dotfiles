@@ -118,6 +118,7 @@ agent looks the same in every surface:
 | blocked | fa-comment | U+F075 |
 | done | fa-check-circle | U+F058 |
 | working | fa-play | U+F04B |
+| waiting | fa-hourglass-half | U+F252 |
 | idle | fa-moon-o | U+F186 |
 | crew | fa-users | U+F0C0 |
 | agent | md-robot | U+F06A9 |
