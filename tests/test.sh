@@ -99,6 +99,10 @@ check "none forwards as empty, so tsesh leaves it unbound" "$(tmux show -gv @tse
 check "mu-crew binds no session key itself" "$(tmux list-keys -T prefix | grep -c tsesh)" 0
 tmux set -gu @mu_crew_key_session_last
 
+# --- host color ---------------------------------------------------------------
+check "host color is set at source time" \
+	"$(tmux show -gv @mu_crew_host_color)" "$("$root/tmux/scripts/mu-crew-host-color")"
+
 # --- side panel key reaches murmur with a pane ---------------------------------
 # run-shell exports no $TMUX_PANE; murmur sidepanel exits 1 without one. Run the
 # command exactly as bound, and check what the fake murmur received.

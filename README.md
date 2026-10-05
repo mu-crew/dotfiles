@@ -99,6 +99,7 @@ remote, memory, CPU, and uptime options current. See [Poller and probes](#poller
 | `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |
 | `@mu_crew_cpu_pill` | CPU use | `@mu_crew_cpu` |
 | `@mu_crew_uptime` | Compact system uptime | `@mu_crew_uptime_*` |
+| `@mu_crew_host_color` | This host's accent hex, the color murmur gives it everywhere. A value, not a format: use it in a style, `#[bg=#{@mu_crew_host_color}]` | set once at source time |
 
 Read them through `#{E:...}` so the colour runs inside apply. They set no
 background, so they take the background of wherever you place them.
@@ -196,6 +197,54 @@ needs data from a program, a long-lived loop writes the data into an option.
 
 Background: murmur's [SSH.md](https://github.com/mu-crew/murmur/blob/main/SSH.md).
 
+## Host colors
+
+murmur gives every host one accent color: crc32 of its short hostname over
+eight Catppuccin accents. The dash, side panel and picker paint the host in
+it, and the notification hook gets it as `MURMUR_HOST_COLOR`. Sourcing
+`mu-crew.conf` runs [`tmux/scripts/mu-crew-host-color`](tmux/scripts/mu-crew-host-color)
+once and stores this host's accent in `@mu_crew_host_color`, so your status
+line can paint the host in the same color:
+
+```tmux
+set -ag status-right '#[fg=#11111b,bg=#{@mu_crew_host_color},bold] #H #[default]'
+```
+
+The palette list and the hash are mirrored in murmur's `src/dash-paint.ts`;
+both sides pin the same value in a test.
+
+## Notifications
+
+[`murmur/on-attention`](murmur/on-attention) is a notification hook for
+murmur, which runs `~/.config/murmur/on-attention` once for each new `done`,
+`blocked`, `error` or `crashed`. Link it there, or exec it from a hook of
+your own:
+
+```sh
+ln -s ~/.local/share/mu-crew-dotfiles/murmur/on-attention ~/.config/murmur/on-attention
+```
+
+| OS | Sends with | Urgency |
+| --- | --- | --- |
+| Linux | `notify-send -a murmur` | `done` is normal; `blocked`, `error` and `crashed` are critical |
+| macOS | `terminal-notifier` with the icon, else `osascript` | none |
+
+- Each notification carries a 128px icon: a rounded frame in the host's accent
+  with the event kind's glyph in its color, so you can tell the host and the
+  severity apart at a glance. murmur supplies all three (`MURMUR_HOST_COLOR`,
+  `MURMUR_GLYPH`, `MURMUR_KIND_COLOR`). The host name in the body is in the
+  same accent, where the notifier renders markup.
+- Icons render once with ImageMagick (`magick`) and a Nerd Font, and are cached
+  in `~/.cache/murmur/`. Without `magick`, a Nerd Font, or a murmur that sets
+  the colors, the notification goes out without an icon.
+- A `done` from a crew (orchestrated) agent is skipped: the orchestrator reads
+  it.
+- `MURMUR_ICON_BASE` overrides the icon's inner fill (default `#1e1e2e`) and
+  `MURMUR_ICON_FONT` its font (default `JetBrainsMono Nerd Font`).
+- The notifier may scale icons down. mako's default is 64px; for a larger one:
+  `[app-name=murmur]` then `max-icon-size=72` in the mako config.
+- Test it: `MURMUR_KIND=blocked MURMUR_AGENT=test MURMUR_HOST=$(hostname) MURMUR_HOST_COLOR='#cba6f7' MURMUR_GLYPH=$'\uf075' MURMUR_KIND_COLOR='#fab387' murmur/on-attention`.
+
 ## Codex and Cursor
 
 pi reports to murmur from inside the agent. Codex and Cursor instead run a
@@ -218,8 +267,9 @@ tests/test.sh
 Runs against an isolated tmux server with a fake `murmur` on `PATH`: keys and
 the `none` opt-out, the side panel key, glyph defaults and ASCII, the pill and
 window formats, the cheap-tick rule, probe formats, local probes, remote
-counting, and exit codes. `python3 tests/test_poller.py` covers the parsers and
-probe calculations.
+counting, the host color, and exit codes. `python3 tests/test_poller.py` covers
+the parsers and probe calculations; `python3 tests/test_host_color.py` pins the
+host color against murmur's.
 
 ## Related
 

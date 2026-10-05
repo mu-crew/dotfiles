@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Print a host's accent color: crc32 of the short hostname over eight accents.
+
+murmur colors a host the same way (hostColor in murmur's src/dash-paint.ts):
+the dash, side panel, picker and notification hook. mu-crew.conf runs this
+once at source time into @mu_crew_host_color, so a status line can paint this
+host in the color murmur shows it in everywhere else.
+
+Usage: mu-crew-host-color [hostname]   (default: this machine)
+"""
+
+import socket
+import sys
+import zlib
+
+# Catppuccin Mocha accents, all readable with a dark foreground. Append only:
+# reordering moves every host's color, and murmur holds the same list.
+COLORS = (
+    "#fab387",  # peach
+    "#89dceb",  # sky
+    "#cba6f7",  # mauve
+    "#a6e3a1",  # green
+    "#f9e2af",  # yellow
+    "#94e2d5",  # teal
+    "#f5c2e7",  # pink
+    "#eba0ac",  # maroon
+)
+
+
+def host_color(host: str) -> str:
+    short = host.split(".", 1)[0]
+    return COLORS[zlib.crc32(short.encode()) % len(COLORS)]
+
+
+if __name__ == "__main__":
+    print(host_color(sys.argv[1] if len(sys.argv) > 1 else socket.gethostname()))
