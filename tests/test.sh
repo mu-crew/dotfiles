@@ -164,6 +164,15 @@ tmux set -w -t "$w2" @murmur_window_state error
 tmux select-window -t "$p0"
 check "badged window: select-window clears" "$(fires select-window -t "$w2")" "yes clear --pane %N"
 tmux set -wu -t "$w2" @murmur_window_state
+pw2=$(tmux display -p -t "$w2" '#{pane_id}')
+tmux set -p -t "$pw2" @murmur_pane_state done
+tmux select-window -t "$p0"
+check "badged pane: select-window clears" "$(fires select-window -t "$w2")" "yes clear --pane %N"
+tmux set -pu -t "$pw2" @murmur_pane_state
+tmux set -t hk @murmur_session_state crashed
+check "session badge only: select-window clears" "$(fires select-window -t "$p0")" "yes clear --pane %N"
+tmux set -u -t hk @murmur_session_state
+tmux select-window -t "$w2"
 # client-session-changed needs a client: attach one on a pty.
 tmux new-session -d -s hk2
 TERM=xterm python3 -c "import pty; pty.spawn(['tmux','attach','-t','hk'])" >/dev/null 2>&1 &
@@ -175,6 +184,14 @@ check "no badge: switch-client runs no murmur" "$(fires switch-client -c "$clien
 tmux set -t hk @murmur_session_state blocked
 check "badged session: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
 tmux set -u -t hk @murmur_session_state
+tmux switch-client -c "$client" -t hk2
+tmux set -p -t "$pw2" @murmur_pane_state blocked
+check "badged pane: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
+tmux set -pu -t "$pw2" @murmur_pane_state
+tmux switch-client -c "$client" -t hk2
+tmux set -w -t "$w2" @murmur_window_state done
+check "badged window: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
+tmux set -wu -t "$w2" @murmur_window_state
 tmux detach-client -t "$client" 2>/dev/null || true
 kill "$client_pid" 2>/dev/null || true; wait "$client_pid" 2>/dev/null || true
 tmux kill-session -t hk2
