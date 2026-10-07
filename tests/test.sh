@@ -146,6 +146,8 @@ tmux new-session -d -s hk
 p0=$(tmux display -p -t hk '#{pane_id}')
 p1=$(tmux split-window -P -F '#{pane_id}' -t hk)
 w2=$(tmux new-window -d -P -F '#{window_id}' -t hk)
+check "no state anywhere: select-pane runs no murmur" "$(fires select-pane -t "$p0")" no
+tmux select-pane -t "$p1"
 tmux set -p -t "$p0" @murmur_pane_state idle
 check "idle pane: select-pane runs no murmur" "$(fires select-pane -t "$p0")" no
 tmux set -p -t "$p1" @murmur_pane_state blocked
