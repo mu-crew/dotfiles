@@ -124,6 +124,63 @@ check "side panel key passes the pane to murmur" \
 	"$(sed -E 's/%[0-9]+$/%N/' "$tmp/murmur-args" 2>/dev/null)" "sidepanel|%N"
 rm -f "$tmp/bin/murmur"
 
+# --- focus hooks run murmur only when a badge is showing -----------------------
+# murmur is a Node start; a pane, window or session switch with nothing to
+# acknowledge must not run it. Window and session states count too: clear also
+# drops orphan badges that only those levels show.
+fake_murmur <<SH
+#!/bin/sh
+echo "\$*" >>"$tmp/clear.log"
+SH
+# fires <tmux args...>: "yes <murmur args>" if the hook ran murmur, else "no".
+fires() {
+	rm -f "$tmp/clear.log"
+	tmux "$@"
+	if wait_for "test -s $tmp/clear.log" 15; then
+		echo "yes $(sed -E 's/%[0-9]+/%N/' "$tmp/clear.log")"
+	else
+		echo no
+	fi
+}
+tmux new-session -d -s hk
+p0=$(tmux display -p -t hk '#{pane_id}')
+p1=$(tmux split-window -P -F '#{pane_id}' -t hk)
+w2=$(tmux new-window -d -P -F '#{window_id}' -t hk)
+tmux set -p -t "$p0" @murmur_pane_state idle
+check "idle pane: select-pane runs no murmur" "$(fires select-pane -t "$p0")" no
+tmux set -p -t "$p1" @murmur_pane_state blocked
+check "blocked pane: select-pane clears it" "$(fires select-pane -t "$p1")" "yes clear --pane %N"
+check "the hook passes the focused pane" "$(cat "$tmp/clear.log")" "clear --pane $p1"
+tmux set -pu -t "$p1" @murmur_pane_state
+tmux set -pu -t "$p0" @murmur_pane_state
+tmux set -w -t "$p0" @murmur_window_state done
+check "orphan window badge: select-pane clears" "$(fires select-pane -t "$p0")" "yes clear --pane %N"
+tmux set -wu -t "$p0" @murmur_window_state
+tmux set -t hk @murmur_session_state crashed
+check "session badge only: select-pane clears" "$(fires select-pane -t "$p1")" "yes clear --pane %N"
+tmux set -u -t hk @murmur_session_state
+check "no badge: select-window runs no murmur" "$(fires select-window -t "$w2")" no
+tmux set -w -t "$w2" @murmur_window_state error
+tmux select-window -t "$p0"
+check "badged window: select-window clears" "$(fires select-window -t "$w2")" "yes clear --pane %N"
+tmux set -wu -t "$w2" @murmur_window_state
+# client-session-changed needs a client: attach one on a pty.
+tmux new-session -d -s hk2
+TERM=xterm python3 -c "import pty; pty.spawn(['tmux','attach','-t','hk'])" >/dev/null 2>&1 &
+client_pid=$!
+wait_for "test -n \"\$(tmux list-clients -F x)\"" || true
+client=$(tmux list-clients -F '#{client_name}' | head -1)
+sleep 0.5
+check "no badge: switch-client runs no murmur" "$(fires switch-client -c "$client" -t hk2)" no
+tmux set -t hk @murmur_session_state blocked
+check "badged session: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
+tmux set -u -t hk @murmur_session_state
+tmux detach-client -t "$client" 2>/dev/null || true
+kill "$client_pid" 2>/dev/null || true; wait "$client_pid" 2>/dev/null || true
+tmux kill-session -t hk2
+tmux kill-session -t hk
+rm -f "$tmp/bin/murmur"
+
 # --- pill ----------------------------------------------------------------------
 check "pill is empty with no agents" "$(tmux display -p '#{E:@mu_crew_pill}')" ""
 tmux set -g @murmur_count_blocked 2

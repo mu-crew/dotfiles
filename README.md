@@ -62,7 +62,9 @@ until you place them.
 
 **Focus hooks.** Selecting an agent's pane, window or session runs
 `murmur clear` for that pane, which acknowledges a `done` or `blocked` badge.
-Without these a badge never clears. They use hook index 42, so hooks you set
+Without these a badge never clears. Clear runs only when the pane, its window
+or its session shows `done`, `blocked`, `error` or `crashed`, so a switch with
+no badge in sight starts no process. They use hook index 42, so hooks you set
 yourself are kept.
 
 **Keys**, under the prefix:
