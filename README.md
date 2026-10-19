@@ -247,15 +247,20 @@ ln -s ~/.local/share/mu-crew-dotfiles/murmur/on-attention ~/.config/murmur/on-at
   `[app-name=murmur]` then `max-icon-size=72` in the mako config.
 - Test it: `MURMUR_KIND=blocked MURMUR_AGENT=test MURMUR_HOST=$(hostname) MURMUR_HOST_COLOR='#cba6f7' MURMUR_GLYPH=$'\uf075' MURMUR_KIND_COLOR='#fab387' murmur/on-attention`.
 
-## Codex and Cursor
+## Codex, Cursor and opencode
 
 pi reports to murmur from inside the agent. Codex and Cursor instead run a
-command when a turn ends:
+command when a turn ends, and opencode runs a plugin:
 
 - [`codex/config.toml`](codex/config.toml): the `notify` line for
   `~/.codex/config.toml`.
 - [`cursor/hooks.json`](cursor/hooks.json): a `stop` hook for
   `~/.cursor/hooks.json`.
+- [`opencode/plugins/murmur/tui.ts`](opencode/plugins/murmur/tui.ts): an
+  OpenCode 2 TUI plugin. Install it as
+  `~/.config/opencode/plugins/murmur/tui.ts`. It needs a directory of its own,
+  because opencode skips a bare file in `plugins/`. It also needs
+  `@opencode/plugin` 2.x installed in `~/.config/opencode`.
 
 These report attention only (`done`, `blocked`), not running, idle or crashes.
 The agent must run inside tmux.
