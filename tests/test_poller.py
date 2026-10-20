@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import importlib.machinery
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -126,9 +129,10 @@ class PollOnceTests(unittest.TestCase):
 
 class LoopTests(unittest.TestCase):
     def test_an_idle_wake_costs_one_tmux_call(self):
-        # Every wake used to run show-options three or more times (server
-        # check, probe list, one interval per ready probe) plus one per
-        # publish. A wake now reads the server once and shares the snapshot.
+        # A wake that polls nothing used to run show-options twice (server
+        # check, probe list); a wake that polls also read one interval per
+        # ready probe and once more per publish. A wake now reads the server
+        # once and shares the snapshot.
         import tempfile
 
         calls = []
@@ -174,6 +178,105 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(poller.interval("uptime", snapshot), poller.INTERVALS["uptime"])
         self.assertEqual(poller.probes({}), ["murmur_remote"])
         self.assertEqual(poller.interval("cpu", {"@mu_crew_cpu_interval": "5s"}), poller.INTERVALS["cpu"])
+
+    def test_escaped_values_decode_as_show_option_gqv_printed_them(self):
+        # Recorded `tmux 3.7c show-options -g` lines for values set with tabs,
+        # newlines, quotes, backslashes and padding.
+        shown = "\n".join([
+            "@mu_crew_probes cpu\\tuptime",
+            "@mu_crew_a cpu\\nuptime",
+            "@mu_crew_cpu_interval \\t0.1\\t",
+            "@mu_crew_b \"a b\"",
+            "@mu_crew_c \"it's \\\"q\\\" \\\\ back \\$x #h\"",
+            "@mu_crew_d 'x\\001\"y'",
+            "@mu_crew_e \"  0.1 \"",
+            "@mu_crew_f a\\\\b",
+            "@mu_crew_g ''",
+            "status-left foo",
+        ])
+        saved = poller.tmux
+        poller.tmux = lambda *args: subprocess.CompletedProcess(args, 0, shown + "\n", "")
+        try:
+            snapshot = poller.current_options()
+        finally:
+            poller.tmux = saved
+        self.assertEqual(snapshot, {
+            "@mu_crew_probes": "cpu\tuptime",
+            "@mu_crew_a": "cpu\nuptime",
+            "@mu_crew_cpu_interval": "\t0.1\t",
+            "@mu_crew_b": "a b",
+            "@mu_crew_c": "it's \"q\" \\ back $x #h",
+            "@mu_crew_d": "x\x01\"y",
+            "@mu_crew_e": "  0.1 ",
+            "@mu_crew_f": "a\\b",
+            "@mu_crew_g": "",
+        })
+        self.assertEqual(poller.probes(snapshot), ["cpu", "uptime"])
+        self.assertEqual(poller.probes({"@mu_crew_probes": snapshot["@mu_crew_a"]}), ["cpu", "uptime"])
+        self.assertEqual(poller.interval("cpu", snapshot), 0.1)
+
+    @unittest.skipUnless(shutil.which("tmux"), "needs tmux")
+    def test_snapshot_matches_show_option_gqv_on_a_private_server(self):
+        socket = f"mu-exp-poller-test-{os.getpid()}"
+
+        def private(*args):
+            return subprocess.run(["tmux", "-L", socket, "-f", "/dev/null", *args],
+                                  text=True, capture_output=True, env={**os.environ, "TMUX": ""})
+
+        values = {
+            "@mu_crew_probes": "cpu\tuptime",
+            "@mu_crew_cpu_interval": "\t0.1\t",
+            "@mu_crew_a": "cpu\nuptime",
+            "@mu_crew_b": "it's \"q\" \\ back $x #h",
+            "@mu_crew_c": "  0.1 ",
+        }
+        saved = poller.tmux
+        poller.tmux = private
+        try:
+            self.assertEqual(private("new-session", "-d", "-s", "x").returncode, 0)
+            for name, value in values.items():
+                self.assertEqual(private("set-option", "-g", name, value).returncode, 0)
+            snapshot = poller.current_options()
+            for name in values:
+                self.assertEqual(snapshot[name].strip(), poller.option(name), name)
+            self.assertEqual(poller.probes(snapshot), ["cpu", "uptime"])
+            self.assertEqual(poller.interval("cpu", snapshot), 0.1)
+        finally:
+            poller.tmux = saved
+            private("kill-server")
+
+    def test_a_tab_separated_probe_list_keeps_the_loop_polling(self):
+        # The loop exits (and relaunches itself) when it reads no probes.
+        class Stop(Exception):
+            pass
+
+        polled = []
+
+        def fake_tmux(*args):
+            out = "@mu_crew_probes cpu\\tuptime\n@mu_crew_cpu_interval \\t50\\t\n"
+            return subprocess.CompletedProcess(args, 0, out, "")
+
+        class Worker:
+            def cpu(self):
+                polled.append("cpu")
+                return {"@mu_crew_cpu": "1"}, 0
+
+            def uptime(self):
+                polled.append("uptime")
+                return {"@mu_crew_uptime_value": "1"}, 0
+
+        def fake_sleep(seconds):
+            raise Stop
+
+        saved = poller.tmux, poller.Poller, poller.time.sleep
+        poller.tmux, poller.Poller, poller.time.sleep = fake_tmux, Worker, fake_sleep
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaises(Stop):
+                    poller.loop(Path(directory) / "pid")
+        finally:
+            poller.tmux, poller.Poller, poller.time.sleep = saved
+        self.assertEqual(polled, ["cpu", "uptime"])
 
 
 if __name__ == "__main__":

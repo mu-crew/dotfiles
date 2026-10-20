@@ -11,7 +11,6 @@ import json
 import os
 import platform
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -266,17 +265,45 @@ def current_options() -> dict[str, str] | None:
     if result.returncode != 0:
         return None
     values = {}
-    for line in result.stdout.splitlines():
+    # Not splitlines(): tmux leaves U+2028 and friends raw inside a value.
+    for line in result.stdout.split("\n"):
         name, _, raw = line.partition(" ")
-        if not name.startswith("@mu_crew_"):
-            continue
-        # tmux quotes values with spaces or quotes, shell-style.
-        try:
-            parts = shlex.split(raw)
-        except ValueError:
-            continue
-        values[name] = parts[0] if len(parts) == 1 else raw
+        if name.startswith("@mu_crew_"):
+            values[name] = unescape_option(raw)
     return values
+
+
+_SIMPLE_ESCAPES = {"n": 10, "t": 9, "r": 13, "a": 7, "b": 8, "f": 12, "v": 11, "E": 27, "s": 32}
+
+
+def unescape_option(raw: str) -> str:
+    """The value of a `show-options` line, as `show-options -v` prints it.
+
+    tmux (args_escape) wraps a value in "" or '' when it holds a space or
+    shell-special character, then vis(3)-escapes it: \\n, \\t, \\\\, \\", \\$,
+    \\ooo octal for control and invalid bytes. A one-character value is a
+    bare backslash escape. Decode all of it, or a tab-separated probe list or
+    an interval with padding reads differently than it did via -gqv.
+    """
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+        raw = raw[1:-1]
+    out = bytearray()
+    i = 0
+    while i < len(raw):
+        char = raw[i]
+        i += 1
+        if char != "\\" or i == len(raw):
+            out += char.encode()
+            continue
+        char = raw[i]
+        octal = re.match(r"[0-7]{1,3}", raw[i:])
+        if octal:
+            out.append(int(octal.group(), 8) & 0xFF)
+            i += len(octal.group())
+        else:
+            out += (chr(_SIMPLE_ESCAPES[char]) if char in _SIMPLE_ESCAPES else char).encode()
+            i += 1
+    return out.decode(errors="replace")
 
 
 def publish(values: dict[str, str], current: dict[str, str] | None = None) -> bool:
