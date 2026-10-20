@@ -279,8 +279,10 @@ def current_options() -> dict[str, str] | None:
     return values
 
 
-def publish(values: dict[str, str]) -> bool:
-    current = current_options()
+def publish(values: dict[str, str], current: dict[str, str] | None = None) -> bool:
+    """Write what differs from `current` (a snapshot from this round; read
+    fresh when omitted)."""
+    current = current_options() if current is None else current
     if current is None:
         return False
     changed = False
@@ -295,12 +297,20 @@ def publish(values: dict[str, str]) -> bool:
     return changed
 
 
-def probes() -> list[str]:
-    enabled = option("@mu_crew_probes", "murmur_remote").split()
+def setting(name: str, default: str, current: dict[str, str] | None) -> str:
+    """A global option from this round's snapshot, or from its own tmux call
+    when there is none. Unset and empty both mean the default."""
+    if current is None:
+        return option(name, default)
+    return current.get(name, "").strip() or default
+
+
+def probes(current: dict[str, str] | None = None) -> list[str]:
+    enabled = setting("@mu_crew_probes", "murmur_remote", current).split()
     return [name for name in enabled if name in INTERVALS]
 
 
-def poll_once(worker: Poller, enabled: list[str]) -> int:
+def poll_once(worker: Poller, enabled: list[str], current: dict[str, str] | None = None) -> int:
     values = {}
     result = 0
     for name in enabled:
@@ -311,7 +321,7 @@ def poll_once(worker: Poller, enabled: list[str]) -> int:
                 result = code
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, AttributeError):
             result = 1
-    publish(values)
+    publish(values, current)
     return result
 
 
@@ -320,11 +330,11 @@ def socket_pid_file() -> Path:
     return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "mu-crew" / f"poller-{key}.pid"
 
 
-def interval(name: str) -> float:
+def interval(name: str, current: dict[str, str] | None = None) -> float:
     """@mu_crew_<probe>_interval in seconds; a value that is not a number
     falls back to the default rather than stalling that probe."""
     try:
-        return max(0.1, float(option(f"@mu_crew_{name}_interval", str(INTERVALS[name]))))
+        return max(0.1, float(setting(f"@mu_crew_{name}_interval", str(INTERVALS[name]), current)))
     except ValueError:
         return INTERVALS[name]
 
@@ -342,20 +352,22 @@ def loop(pid_file: Path) -> int:
     try:
         # A restarted server on the same socket is adopted, not abandoned: its
         # --ensure saw this loop alive and started none of its own.
-        while server_up():
+        # One show-options -g per wake answers "is the server up", the probe
+        # list, every interval and what is already published.
+        while (current := current_options()) is not None:
             now = time.monotonic()
-            enabled = probes()
+            enabled = probes(current)
             dropped = [name for name in due if name not in enabled]
             if dropped:
-                publish({option: "" for name in dropped for option in OWNED[name]})
+                publish({option: "" for name in dropped for option in OWNED[name]}, current)
             if not enabled:
                 break
             due = {name: due.get(name, 0.0) for name in enabled}
             ready = [name for name, deadline in due.items() if now >= deadline]
             if ready:
-                poll_once(worker, ready)
+                poll_once(worker, ready, current)
                 for name in ready:
-                    due[name] = now + interval(name)
+                    due[name] = now + interval(name, current)
             time.sleep(max(0.1, min(1.0, min(due.values(), default=now + 1) - time.monotonic())))
     finally:
         pid_file.unlink(missing_ok=True)

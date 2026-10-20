@@ -116,12 +116,64 @@ class PollOnceTests(unittest.TestCase):
 
         published = []
         original = poller.publish
-        poller.publish = published.append
+        poller.publish = lambda values, current=None: published.append(values)
         try:
             self.assertEqual(poller.poll_once(Failing(), ["memory"]), 1)
         finally:
             poller.publish = original
         self.assertEqual(published, [{}])
+
+
+class LoopTests(unittest.TestCase):
+    def test_an_idle_wake_costs_one_tmux_call(self):
+        # Every wake used to run show-options three or more times (server
+        # check, probe list, one interval per ready probe) plus one per
+        # publish. A wake now reads the server once and shares the snapshot.
+        import tempfile
+
+        calls = []
+
+        class Stop(Exception):
+            pass
+
+        def fake_tmux(*args):
+            calls.append(args)
+            out = "@mu_crew_probes uptime\n@mu_crew_uptime_interval 50\n"
+            return subprocess.CompletedProcess(args, 0, out, "")
+
+        class Worker:
+            def uptime(self):
+                return {"@mu_crew_uptime_value": "1"}, 0
+
+        sleeps = []
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 3:
+                raise Stop
+
+        saved = poller.tmux, poller.Poller, poller.time.sleep
+        poller.tmux, poller.Poller, poller.time.sleep = fake_tmux, Worker, fake_sleep
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaises(Stop):
+                    poller.loop(Path(directory) / "pid")
+        finally:
+            poller.tmux, poller.Poller, poller.time.sleep = saved
+        reads = [call for call in calls if call[0] == "show-options"]
+        # Wake 1 polls and publishes (one set-option); wakes 2 and 3 only read.
+        self.assertEqual(reads, [("show-options", "-g")] * 3)
+        self.assertEqual([call[0] for call in calls if call[0] != "show-options"],
+                         ["set-option", "refresh-client"])
+        self.assertTrue(all(0.1 <= value <= 1.0 for value in sleeps))
+
+    def test_a_probe_list_change_is_seen_on_the_next_wake(self):
+        snapshot = {"@mu_crew_probes": "cpu uptime", "@mu_crew_cpu_interval": "2"}
+        self.assertEqual(poller.probes(snapshot), ["cpu", "uptime"])
+        self.assertEqual(poller.interval("cpu", snapshot), 2.0)
+        self.assertEqual(poller.interval("uptime", snapshot), poller.INTERVALS["uptime"])
+        self.assertEqual(poller.probes({}), ["murmur_remote"])
+        self.assertEqual(poller.interval("cpu", {"@mu_crew_cpu_interval": "5s"}), poller.INTERVALS["cpu"])
 
 
 if __name__ == "__main__":
