@@ -52,6 +52,20 @@ class ParserTests(unittest.TestCase):
     def test_linux_cpu_uses_deltas(self):
         self.assertEqual(poller.parse_proc_stat_cpu("cpu  10 0 5 85 0 0 0 0\n", "cpu  30 0 5 165 0 0 0 0\n"), 20)
 
+    def test_darwin_cpu_ticks_use_deltas_and_survive_wraparound(self):
+        # [user, system, idle, nice]
+        self.assertEqual(poller.parse_ticks_cpu([10, 5, 85, 0], [30, 5, 165, 0]), 20)
+        self.assertEqual(poller.parse_ticks_cpu([1, 1, 1, 1], [1, 1, 1, 1]), 0)
+        self.assertEqual(poller.parse_ticks_cpu([0xFFFFFFF0, 0, 0, 0], [0x10, 0, 0x20, 0]), 50)
+
+    @unittest.skipUnless(sys.platform == "darwin", "host_statistics is macOS only")
+    def test_darwin_cpu_probe_reads_host_statistics(self):
+        worker = poller.Poller()
+        update, code = worker.cpu()
+        self.assertEqual(code, 0)
+        self.assertTrue(0 <= int(update["@mu_crew_cpu"]) <= 100)
+        self.assertIsInstance(worker.cpu_state, list)
+
     def test_remote_counts_keep_crew_separate_except_attention(self):
         view = {
             "peers": [{"name": "dev"}],
@@ -72,7 +86,7 @@ class ParserTests(unittest.TestCase):
 
 class PollOnceTests(unittest.TestCase):
     def test_a_failing_probe_command_is_a_failed_round_not_a_dead_loop(self):
-        # vm_stat, memory_pressure, top and sysctl can exit non-zero, and
+        # vm_stat, memory_pressure and sysctl can exit non-zero, and
         # CalledProcessError is not an OSError. Uncaught, it ended the loop and
         # every pill went blank until the config was sourced again.
         class Failing:

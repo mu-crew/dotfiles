@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import hashlib
 import json
 import os
@@ -147,6 +149,26 @@ def parse_proc_stat_cpu(before: str, after: str) -> int:
     return round((total - idle) / total * 100) if total else 0
 
 
+def darwin_cpu_ticks() -> list[int]:
+    """Cumulative [user, system, idle, nice] ticks from host_statistics (no child process)."""
+    lib = ctypes.CDLL(ctypes.util.find_library("System") or "/usr/lib/libSystem.B.dylib")
+    lib.mach_host_self.restype = ctypes.c_uint32
+    lib.host_statistics.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)]
+    ticks = (ctypes.c_uint32 * 4)()
+    count = ctypes.c_uint32(4)
+    status = lib.host_statistics(lib.mach_host_self(), 3, ticks, ctypes.byref(count))  # HOST_CPU_LOAD_INFO
+    if status != 0:
+        raise OSError(f"host_statistics failed: {status}")
+    return list(ticks)
+
+
+def parse_ticks_cpu(before: list[int], after: list[int]) -> int:
+    # Tick counters are 32-bit and wrap; mask the difference.
+    delta = [(new - old) & 0xFFFFFFFF for old, new in zip(before, after)]
+    total = sum(delta)
+    return round((total - delta[2]) / total * 100) if total else 0
+
+
 def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
     counts = {state: 0 for state in STATES}
     crew = 0
@@ -172,7 +194,7 @@ def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
 class Poller:
     def __init__(self) -> None:
         self.memory_state: dict[str, float] | None = None
-        self.cpu_state: str | None = None
+        self.cpu_state: str | list[int] | None = None
         self.remote_active = True
 
     def murmur_remote(self) -> tuple[dict[str, str], int]:
@@ -199,9 +221,13 @@ class Poller:
 
     def cpu(self) -> tuple[dict[str, str], int]:
         if platform.system() == "Darwin":
-            output = run(["top", "-l", "2", "-n", "0"])
-            idle = re.findall(r"CPU usage:.*?([\d.]+)% idle", output)
-            value = round(100 - float(idle[-1]))
+            current = darwin_cpu_ticks()
+            if self.cpu_state is None:
+                time.sleep(0.1)
+                self.cpu_state = current
+                current = darwin_cpu_ticks()
+            value = parse_ticks_cpu(self.cpu_state, current)
+            self.cpu_state = current
         else:
             current = Path("/proc/stat").read_text()
             if self.cpu_state is None:
