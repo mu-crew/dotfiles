@@ -66,6 +66,27 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(0 <= int(update["@mu_crew_cpu"]) <= 100)
         self.assertIsInstance(worker.cpu_state, list)
 
+    @unittest.skipUnless(sys.platform == "darwin", "Mach ports are macOS only")
+    def test_darwin_cpu_probe_does_not_leak_host_port_send_rights(self):
+        import ctypes
+
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        lib.mach_host_self.restype = ctypes.c_uint32
+        lib.mach_port_get_refs.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
+        task = ctypes.c_uint32.in_dll(lib, "mach_task_self_").value
+        host = lib.mach_host_self()
+
+        def refs() -> int:
+            out = ctypes.c_uint32()
+            self.assertEqual(lib.mach_port_get_refs(task, host, 0, ctypes.byref(out)), 0)  # MACH_PORT_RIGHT_SEND
+            return out.value
+
+        poller.darwin_cpu_ticks()  # warm up
+        before = refs()
+        for _ in range(200):
+            poller.darwin_cpu_ticks()
+        self.assertEqual(refs(), before)
+
     def test_remote_counts_keep_crew_separate_except_attention(self):
         view = {
             "peers": [{"name": "dev"}],
