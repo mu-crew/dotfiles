@@ -154,7 +154,7 @@ Each probe has its own interval. Set `@mu_crew_<probe>_interval` in seconds to
 change it. The defaults are 10 seconds for `murmur_remote`, 5 seconds for
 `memory`, `cpu` and `muzzle`, and 60 seconds for `uptime`.
 
-The `muzzle` probe runs `muzzle status --json` (muzzle 0.3 for the slow
+The `muzzle` probe runs `muzzle status --json` (muzzle 0.2.3 for the slow
 counts; an older muzzle shows none) and writes `@mu_crew_muzzle_*`. muzzle
 decides what is slow. A failed call, or no muzzle on PATH, clears the
 options; the probe tries again on its next tick. Place `#{E:@mu_crew_muzzle_pill}` next to `@mu_crew_pill`.

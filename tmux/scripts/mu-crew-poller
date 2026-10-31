@@ -198,7 +198,7 @@ def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
 
 
 def muzzle_counts(view: dict[str, Any]) -> dict[str, str]:
-    """muzzle 0.3 `status --json` as pill options. held and budget are always
+    """muzzle 0.2.3 `status --json` as pill options. held and budget are always
     set; the rest unset at zero, as murmur does. An older muzzle has no
     slow_* fields, which reads as zero."""
     def count(value: Any) -> str:
