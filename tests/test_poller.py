@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "tmux" / "scripts" / "mu-crew-poller"
@@ -106,6 +107,40 @@ class ParserTests(unittest.TestCase):
             poller.remote_counts(view),
             ({"crashed": 0, "error": 1, "blocked": 1, "done": 0, "working": 1, "waiting": 1, "idle": 0, "crew": 3}, 1),
         )
+
+
+class MuzzleTests(unittest.TestCase):
+    def test_counts_unset_at_zero_and_held_always_set(self):
+        self.assertEqual(
+            poller.muzzle_counts({"budget": 14, "held": 0, "waiting": [], "slow_holders": 0, "slow_waiters": 0}),
+            {"@mu_crew_muzzle_held": "0", "@mu_crew_muzzle_budget": "14", "@mu_crew_muzzle_waiting": "",
+             "@mu_crew_muzzle_slow_holders": "", "@mu_crew_muzzle_slow_waiters": ""},
+        )
+
+    def test_an_older_muzzle_without_slow_fields_reads_as_zero_slow(self):
+        counts = poller.muzzle_counts({"budget": 14, "held": 6, "waiting": [{}, {}, {}]})
+        self.assertEqual(counts["@mu_crew_muzzle_waiting"], "3")
+        self.assertEqual(counts["@mu_crew_muzzle_slow_holders"], "")
+
+    def test_bad_output_clears_every_option(self):
+        worker = poller.Poller()
+        for output in ("not json", "{}", "[]", '{"held": 1e999, "budget": 1}'):
+            with mock.patch.object(poller, "run", return_value=output):
+                values, code = worker.muzzle()
+            self.assertEqual((code, set(values.values())), (1, {""}), output)
+            self.assertEqual(set(values), set(poller.OWNED["muzzle"]))
+
+    def test_an_unrunnable_or_missing_muzzle_clears_and_is_retried(self):
+        worker = poller.Poller()
+        for error, want in ((PermissionError(13, "denied"), 1), (FileNotFoundError(2, "gone"), 2)):
+            with mock.patch.object(poller, "run", side_effect=error):
+                values, code = worker.muzzle()
+            self.assertEqual((code, set(values.values())), (want, {""}), error)
+        # Installed again: the same worker picks it up.
+        ok = '{"held": 2, "budget": 14, "waiting": []}'
+        with mock.patch.object(poller, "run", return_value=ok):
+            values, code = worker.muzzle()
+        self.assertEqual((code, values["@mu_crew_muzzle_held"]), (0, "2"))
 
 
 class PollOnceTests(unittest.TestCase):

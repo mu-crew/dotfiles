@@ -208,6 +208,25 @@ check "local and remote counts add" "$(tmux display -p '#{E:@mu_crew_n_blocked}'
 check "pill shows the sum" "$(tmux display -p '#{E:@mu_crew_pill}' | grep -c '#\[fg=#fab387\]3')" 1
 check "zero states are hidden" "$(tmux display -p '#{E:@mu_crew_pill}' | grep -c '#f38ba8')" 0
 
+# --- muzzle pill ----------------------------------------------------------------
+check "muzzle pill is empty with nothing set" "$(tmux display -p '#{E:@mu_crew_muzzle_pill}')" ""
+tmux set -g @mu_crew_muzzle_held 0
+tmux set -g @mu_crew_muzzle_budget 14
+check "muzzle pill is empty when nothing holds or waits" "$(tmux display -p '#{E:@mu_crew_muzzle_pill}')" ""
+tmux set -g @mu_crew_muzzle_held 4
+check "muzzle pill shows held/budget" "$(tmux display -p '#{E:@mu_crew_muzzle_pill}' | grep -c ' 4/14')" 1
+check "muzzle pill hides zero counts" "$(tmux display -p '#{E:@mu_crew_muzzle_pill}' | grep -Ec '#74c7ec|#fab387|#eba0ac')" 0
+tmux set -g @mu_crew_muzzle_waiting 2
+tmux set -g @mu_crew_muzzle_slow_holders 1
+tmux set -g @mu_crew_muzzle_slow_waiters 3
+pill=$(tmux display -p '#{E:@mu_crew_muzzle_pill}')
+check "muzzle pill shows waiting" "$(grep -c '#\[fg=#74c7ec\]2' <<<"$pill")" 1
+check "muzzle pill shows slow holders" "$(grep -c '#\[fg=#fab387\]1' <<<"$pill")" 1
+check "muzzle pill shows slow waiters" "$(grep -c '#\[fg=#eba0ac\]#\[bold\]3' <<<"$pill")" 1
+tmux set -g @mu_crew_muzzle_held 0
+check "muzzle pill shows a queue with nothing held" "$(tmux display -p '#{E:@mu_crew_muzzle_pill}' | grep -c ' 0/14')" 1
+for o in held budget waiting slow_holders slow_waiters; do tmux set -gu "@mu_crew_muzzle_$o"; done
+
 # --- window glyph -------------------------------------------------------------
 tmux set -w @murmur_window_state blocked
 check "window glyph shows state" "$(tmux display -p '#{E:@mu_crew_window_glyph}' | grep -c fab387)" 1
@@ -323,5 +342,27 @@ check "no peers clears remote counts" "$(tmux show -gqv @mu_crew_remote_working)
 rm "$tmp/bin/murmur"
 "$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
 check "no murmur stops the remote probe" "$rc" 2
+
+tmux set -g @mu_crew_probes muzzle
+cat >"$tmp/bin/muzzle" <<'SH'
+#!/bin/sh
+echo '{"budget":14,"held":4,"waiting":[{"slow":true},{"slow":false}],"holders":[{}],"slow_holders":1,"slow_waiters":1}'
+SH
+chmod +x "$tmp/bin/muzzle"
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
+check "muzzle probe succeeds" "$rc" 0
+check "muzzle probe publishes held/budget" "$(tmux show -gv @mu_crew_muzzle_held)/$(tmux show -gv @mu_crew_muzzle_budget)" 4/14
+check "muzzle probe counts waiters" "$(tmux show -gv @mu_crew_muzzle_waiting)" 2
+check "muzzle probe publishes slow counts" "$(tmux show -gv @mu_crew_muzzle_slow_holders)$(tmux show -gv @mu_crew_muzzle_slow_waiters)" 11
+printf '#!/bin/sh\nexit 1\n' >"$tmp/bin/muzzle"
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
+check "a failing muzzle is a failed round" "$rc" 1
+check "a failing muzzle clears its options" "$(tmux show -gqv @mu_crew_muzzle_held)" ""
+tmux set -g @mu_crew_muzzle_held 9
+rm "$tmp/bin/muzzle"
+"$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
+check "no muzzle is a failed round" "$rc" 2
+check "no muzzle clears its options" "$(tmux show -gqv @mu_crew_muzzle_held)" ""
+tmux set -g @mu_crew_probes murmur_remote
 
 exit $fail

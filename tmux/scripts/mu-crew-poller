@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 STATES = ("crashed", "error", "blocked", "done", "working", "waiting", "idle")
-INTERVALS = {"murmur_remote": 10.0, "memory": 5.0, "cpu": 5.0, "uptime": 60.0}
+INTERVALS = {"murmur_remote": 10.0, "memory": 5.0, "cpu": 5.0, "uptime": 60.0, "muzzle": 5.0}
 # Options each probe writes. A probe removed from @mu_crew_probes clears its
 # own, so a pill never keeps showing its last value.
 OWNED = {
@@ -26,6 +26,7 @@ OWNED = {
     "memory": ("@mu_crew_mem", "@mu_crew_mem_text"),
     "cpu": ("@mu_crew_cpu", "@mu_crew_cpu_text"),
     "uptime": ("@mu_crew_uptime_value", "@mu_crew_uptime_text"),
+    "muzzle": tuple(f"@mu_crew_muzzle_{name}" for name in ("held", "budget", "waiting", "slow_holders", "slow_waiters")),
 }
 
 
@@ -196,6 +197,21 @@ def remote_counts(view: dict[str, Any]) -> tuple[dict[str, int], int]:
     return {**counts, "crew": crew}, len(view.get("peers", []))
 
 
+def muzzle_counts(view: dict[str, Any]) -> dict[str, str]:
+    """muzzle 0.3 `status --json` as pill options. held and budget are always
+    set; the rest unset at zero, as murmur does. An older muzzle has no
+    slow_* fields, which reads as zero."""
+    def count(value: Any) -> str:
+        return str(value) if isinstance(value, int) and value > 0 else ""
+    return {
+        "@mu_crew_muzzle_held": str(int(view["held"])),
+        "@mu_crew_muzzle_budget": str(int(view["budget"])),
+        "@mu_crew_muzzle_waiting": count(len(view.get("waiting", []))),
+        "@mu_crew_muzzle_slow_holders": count(view.get("slow_holders", 0)),
+        "@mu_crew_muzzle_slow_waiters": count(view.get("slow_waiters", 0)),
+    }
+
+
 class Poller:
     def __init__(self) -> None:
         self.memory_state: dict[str, float] | None = None
@@ -216,6 +232,19 @@ class Poller:
         if not peers:
             self.remote_active = False
         return {f"@mu_crew_remote_{name}": str(value) if value else "" for name, value in counts.items()}, 0 if peers else 3
+
+    def muzzle(self) -> tuple[dict[str, str], int]:
+        # Any failure clears every option, so the pill never shows a stale
+        # queue. Unlike murmur_remote, a missing muzzle is retried every
+        # tick: an npm reinstall removes the binary for a moment, and a
+        # failed exec costs microseconds.
+        cleared = {name: "" for name in OWNED["muzzle"]}
+        try:
+            return muzzle_counts(json.loads(run(["muzzle", "status", "--json"]))), 0
+        except FileNotFoundError:
+            return cleared, 2
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, ArithmeticError):
+            return cleared, 1
 
     def memory(self) -> tuple[dict[str, str], int]:
         if platform.system() == "Darwin":

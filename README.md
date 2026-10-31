@@ -89,7 +89,7 @@ the border shows that title plus murmur's live state. To keep your own
 `#{E:@mu_crew_pane_glyph}` to your format.
 
 **Poller.** One background Python process per tmux server keeps the enabled
-remote, memory, CPU, and uptime options current. See [Poller and probes](#poller-and-probes).
+remote, memory, CPU, uptime, and muzzle options current. See [Poller and probes](#poller-and-probes).
 
 ## Formats you place
 
@@ -98,6 +98,7 @@ remote, memory, CPU, and uptime options current. See [Poller and probes](#poller
 | `@mu_crew_pill` | Robot icon, then `<count><glyph>` per state, most urgent first, then the crew total. Empty when no agents exist. | `@murmur_count_*`, `@mu_crew_remote_*` |
 | `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news | `@murmur_window_state` |
 | `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state | `@murmur_pane_state` |
+| `@mu_crew_muzzle_pill` | This host's muzzle slots: `held/budget`, then queued jobs, slow jobs (past their usual run time) and jobs queued 30 s or more, each hidden at zero. Empty when nothing holds or waits. Needs the `muzzle` probe. | `@mu_crew_muzzle_*` |
 | `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |
 | `@mu_crew_cpu_pill` | CPU use | `@mu_crew_cpu` |
 | `@mu_crew_uptime` | Compact system uptime | `@mu_crew_uptime_*` |
@@ -151,7 +152,12 @@ set -ag status-right '#{E:@mu_crew_uptime}'
 
 Each probe has its own interval. Set `@mu_crew_<probe>_interval` in seconds to
 change it. The defaults are 10 seconds for `murmur_remote`, 5 seconds for
-`memory` and `cpu`, and 60 seconds for `uptime`.
+`memory`, `cpu` and `muzzle`, and 60 seconds for `uptime`.
+
+The `muzzle` probe runs `muzzle status --json` (muzzle 0.3 for the slow
+counts; an older muzzle shows none) and writes `@mu_crew_muzzle_*`. muzzle
+decides what is slow. A failed call, or no muzzle on PATH, clears the
+options; the probe tries again on its next tick. Place `#{E:@mu_crew_muzzle_pill}` next to `@mu_crew_pill`.
 
 Set `@mu_crew_mem_min`, `@mu_crew_cpu_min`, or `@mu_crew_uptime_min` to show a
 format only above that value. Memory and CPU thresholds are percentages. The
