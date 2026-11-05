@@ -9,6 +9,10 @@ socket="$tmp/tmux.sock"
 fail=0
 trap 'tmux -S "$socket" kill-server 2>/dev/null; rm -rf "$tmp"; exit $fail' EXIT
 
+# The harness hook examples run the real murmur, mu and muzzle inits, so they
+# get the caller's PATH, before the fake murmur below replaces it.
+bash "$root/tests/test_examples.sh" | tee "$tmp/examples.log" || fail=1
+
 # Every tmux call in the scripts goes to our server.
 mkdir -p "$tmp/bin"
 real_tmux=$(command -v tmux)
@@ -364,5 +368,8 @@ rm "$tmp/bin/muzzle"
 check "no muzzle is a failed round" "$rc" 2
 check "no muzzle clears its options" "$(tmux show -gqv @mu_crew_muzzle_held)" ""
 tmux set -g @mu_crew_probes murmur_remote
+
+# A skipped check is not a pass: say so last, where it is seen.
+grep '^SKIP' "$tmp/examples.log" || true
 
 exit $fail

@@ -1,10 +1,40 @@
 {
-  "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "murmur hook cursor-agent"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "murmur hook cursor-agent"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "murmur hook cursor-agent"
+      }
+    ],
     "stop": [
       {
-        "command": "murmur notify --source cursor"
+        "command": "murmur hook cursor-agent"
+      },
+      {
+        "command": "mu hook stop cursor-agent --timeout 600 || true",
+        "timeout": 600,
+        "loop_limit": null
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "murmur hook cursor-agent"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "muzzle hook cursor"
       }
     ]
-  }
+  },
+  "version": 1
 }

@@ -1,11 +1,14 @@
-# Add to ~/.codex/config.toml. Codex runs this after each turn; murmur records
-# `done` for the pane it runs in, so the agent shows up in murmur's picker,
-# dash and pill. The agent must run inside tmux.
+# ~/.codex/config.toml needs nothing from mu-crew. Codex's hooks live in
+# ~/.codex/hooks.json, which `murmur init`, `mu init` and `muzzle init` write:
+# see hooks.json next to this file. Hooks are on by default
+# (`[features] hooks = true`). Codex asks you to trust a new or changed hook
+# once: run /hooks.
 #
-# Exec murmur directly. `sh -lc '<script>'` alone swallows the event JSON Codex
-# appends: it lands in $0, not $1.
-notify = ["murmur", "notify", "--source", "codex"]
-
-# If murmur is not on the PATH Codex inherits, use the absolute path from
-# `command -v murmur`, or forward the argument explicitly:
-# notify = ["/bin/sh", "-lc", "exec murmur notify --source codex \"$@\"", "codex-notify"]
+# Remove the older attention-only line if you still have it:
+#
+#   notify = ["murmur", "notify", "--source", "codex"]
+#
+# With murmur's hooks in hooks.json it reports every finished turn twice, and
+# `murmur init` and `murmur doctor` say so. Keep muzzle's hook in hooks.json
+# only, not also as an inline [[hooks.PreToolUse]] here, or every shell call
+# is matched twice (`muzzle doctor` warns).

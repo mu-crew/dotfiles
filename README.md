@@ -253,23 +253,56 @@ ln -s ~/.local/share/mu-crew-dotfiles/murmur/on-attention ~/.config/murmur/on-at
   `[app-name=murmur]` then `max-icon-size=72` in the mako config.
 - Test it: `MURMUR_KIND=blocked MURMUR_AGENT=test MURMUR_HOST=$(hostname) MURMUR_HOST_COLOR='#cba6f7' MURMUR_GLYPH=$'\uf075' MURMUR_KIND_COLOR='#fab387' murmur/on-attention`.
 
-## Codex, Cursor and opencode
+## Harness hooks
 
-pi reports to murmur from inside the agent. Codex and Cursor instead run a
-command when a turn ends, and opencode runs a plugin:
+pi reports to murmur, mu and muzzle from inside the agent, through their pi
+packages. Claude Code, Codex, the Cursor CLI and Muse Code report through
+hooks in their own config files, and three commands write those:
 
-- [`codex/config.toml`](codex/config.toml): the `notify` line for
-  `~/.codex/config.toml`.
-- [`cursor/hooks.json`](cursor/hooks.json): a `stop` hook for
-  `~/.cursor/hooks.json`.
-- [`opencode/plugins/murmur/tui.ts`](opencode/plugins/murmur/tui.ts): an
-  OpenCode 2 TUI plugin. Install it as
+```sh
+murmur init   # agent state: sessions, prompts, permission prompts, turns, interrupts
+mu init       # keep-driving: one Stop hook (not for Muse Code), and mu's skill
+muzzle init   # queueing: a hook before each shell call
+```
+
+Each writes for every harness whose config directory exists; `--hooks
+<list>|all` (murmur, muzzle) or `--harness <list>|all` (mu) writes others too.
+The files are shared: each tool touches only handlers whose command starts
+with its own name, leaves yours where they are, and a second run changes
+nothing. `murmur doctor` and `muzzle doctor` report drift. Codex asks you to
+trust the new hooks once (`/hooks`). The agent must run inside tmux.
+
+The files here are what the three write, in that order, into an empty home.
+They show what lands where; run the `init`s rather than copying them, since
+the `init`s merge into what you already have.
+
+| Harness | Example | Written to |
+| --- | --- | --- |
+| Claude Code | [`claude/settings.json`](claude/settings.json) | `~/.claude/settings.json` |
+| Codex | [`codex/hooks.json`](codex/hooks.json) | `~/.codex/hooks.json` |
+| Cursor CLI | [`cursor/hooks.json`](cursor/hooks.json) | `~/.cursor/hooks.json` |
+| Muse Code | [`muse/settings.json`](muse/settings.json) | the `hooks` key of `~/.config/muse/settings.json` |
+
+- [`codex/config.toml`](codex/config.toml) needs nothing from mu-crew. Remove
+  the older `notify = ["murmur", "notify", …]` line: with murmur's hooks in,
+  it reports every finished turn twice.
+- Muse Code gets no `mu hook stop`: a Stop block there does not hand its
+  reason to the model, so a Muse agent keeps driving by the mu skill's rule.
+  murmur's `Interrupt` handler is `async: true`, the only way Muse delivers
+  that event.
+- The Cursor CLI's `mu hook stop` lifts its `loop_limit`; mu caps its own
+  follow-ups (`MU_KEEP_DRIVING_MAX`).
+- `mu init` also copies the skills it ships, `mu` among them, to
+  `~/.claude/skills` and `~/.codex/skills`, never `~/.agents/skills`. The Cursor CLI reads those
+  too, and gets `~/.cursor/skills/mu` only when neither holds one. Muse Code
+  installs skills through `muse skills`.
+- opencode keeps its attention-only plugin,
+  [`opencode/plugins/murmur/tui.ts`](opencode/plugins/murmur/tui.ts), which
+  runs `murmur notify` for `done` and `blocked`, not running, idle or crashes.
+  It is an OpenCode 2 TUI plugin. Install it as
   `~/.config/opencode/plugins/murmur/tui.ts`. It needs a directory of its own,
   because opencode skips a bare file in `plugins/`. It also needs
   `@opencode/plugin` 2.x installed in `~/.config/opencode`.
-
-These report attention only (`done`, `blocked`), not running, idle or crashes.
-The agent must run inside tmux.
 
 ## Tests
 
@@ -283,6 +316,21 @@ window formats, the cheap-tick rule, probe formats, local probes, remote
 counting, the host color, and exit codes. `python3 tests/test_poller.py` covers
 the parsers and probe calculations; `python3 tests/test_host_color.py` pins the
 host color against murmur's.
+
+It first runs `tests/test_examples.sh`, which checks the
+[harness hook](#harness-hooks) examples against a copy of the three inits'
+entry tables, then runs `murmur init`, `mu init` and `muzzle init` into an
+empty temp home and checks that they write the examples byte for byte, and
+that a home already holding them is left as it is with no warning. It takes
+the CLIs from `PATH`. When one there predates hook entries it skips the second
+part and prints a `SKIP` line, repeated at the end of `tests/test.sh`; with
+`REQUIRE_INITS=1` that skip fails instead. Point `MURMUR_CMD`, `MU_CMD` and
+`MUZZLE_CMD` at newer builds to run it anyway:
+
+```sh
+MURMUR_CMD=../murmur/dist/cli.js MU_CMD=../mu/dist/cli.js \
+  MUZZLE_CMD=../muzzle/target/debug/muzzle tests/test.sh
+```
 
 ## Related
 
