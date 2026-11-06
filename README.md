@@ -283,6 +283,11 @@ the `init`s merge into what you already have.
 | Cursor CLI | [`cursor/hooks.json`](cursor/hooks.json) | `~/.cursor/hooks.json` |
 | Muse Code | [`muse/settings.json`](muse/settings.json) | the `hooks` key of `~/.config/muse/settings.json` |
 
+`CLAUDE_CONFIG_DIR` and `CODEX_HOME`, when set and not empty, move Claude
+Code's and Codex's files for all three, as they do for the harnesses
+themselves: `$CLAUDE_CONFIG_DIR/settings.json` and `$CODEX_HOME/hooks.json`,
+with the same contents. The Cursor CLI's and Muse Code's stay under `~`.
+
 - [`codex/config.toml`](codex/config.toml) needs nothing from mu-crew. Remove
   the older `notify = ["murmur", "notify", …]` line: with murmur's hooks in,
   it reports every finished turn twice.
@@ -293,9 +298,10 @@ the `init`s merge into what you already have.
 - The Cursor CLI's `mu hook stop` lifts its `loop_limit`; mu caps its own
   follow-ups (`MU_KEEP_DRIVING_MAX`).
 - `mu init` also copies the skills it ships, `mu` among them, to
-  `~/.claude/skills` and `~/.codex/skills`, never `~/.agents/skills`. The Cursor CLI reads those
-  too, and gets `~/.cursor/skills/mu` only when neither holds one. Muse Code
-  installs skills through `muse skills`.
+  `~/.claude/skills` and `~/.codex/skills` (or `skills` in the moved
+  directories), never `~/.agents/skills`. The Cursor CLI reads those two
+  literal paths too, and gets `~/.cursor/skills/mu` only when neither holds
+  one. Muse Code installs skills through `muse skills`.
 - opencode keeps its attention-only plugin,
   [`opencode/plugins/murmur/tui.ts`](opencode/plugins/murmur/tui.ts), which
   runs `murmur notify` for `done` and `blocked`, not running, idle or crashes.
@@ -321,9 +327,15 @@ It first runs `tests/test_examples.sh`, which checks the
 [harness hook](#harness-hooks) examples against a copy of the three inits'
 entry tables, then runs `murmur init`, `mu init` and `muzzle init` into an
 empty temp home and checks that they write the examples byte for byte, and
-that a home already holding them is left as it is with no warning. It takes
-the CLIs from `PATH`. When one there predates hook entries it skips the second
-part and prints a `SKIP` line, repeated at the end of `tests/test.sh`; with
+that a home already holding them is left as it is with no warning. It repeats
+both with `CLAUDE_CONFIG_DIR` and `CODEX_HOME` pointing outside the home,
+where Claude Code's and Codex's examples must land, that with only those two
+directories there and no harness named the inits find both through the
+variables, and that set but empty they write under the home as if unset. It
+also checks that murmur keeps its state in `murmur2`, never in the 1.x `murmur`
+directory. It takes the CLIs from `PATH`. When one there predates hook entries
+it skips the second part and prints a `SKIP` line, repeated at the end of
+`tests/test.sh`; with
 `REQUIRE_INITS=1` that skip fails instead. Point `MURMUR_CMD`, `MU_CMD` and
 `MUZZLE_CMD` at newer builds to run it anyway:
 

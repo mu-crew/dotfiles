@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The harness hook examples (claude/, codex/, cursor/, muse/) against what
-# `murmur init`, `mu init` and `muzzle init` write into an empty home.
+# `murmur init`, `mu init` and `muzzle init` write into an empty home, and into
+# the directories CLAUDE_CONFIG_DIR and CODEX_HOME move Claude Code's and codex's
+# configs to.
 # Run: tests/test_examples.sh (tests/test.sh runs it too)
 #
 # The inits come from PATH, or from MURMUR_CMD, MU_CMD and MUZZLE_CMD (an
@@ -108,6 +110,10 @@ done
 cli() {
 	local explicit=${!1:-} cmd
 	cmd=${explicit:-$(command -v "$2" || true)}
+	# in_home runs in the temp home, so a relative path is made absolute here.
+	if [[ $cmd == */* && $cmd != /* ]]; then
+		cmd=$PWD/$cmd
+	fi
 	if [[ -n $cmd ]] && in_home "$tmp/help" "$cmd" init --help 2>&1 | grep -q -- "$3"; then
 		echo "$cmd"
 	elif [[ -n $explicit ]]; then
@@ -116,16 +122,30 @@ cli() {
 	fi
 }
 
-# in_home <home> <cmd...>: run with nothing of the caller's environment but
-# PATH, so no CLAUDE_CONFIG_DIR, CODEX_HOME, MURMUR_HOOK_HOME or MU_INIT_HOME
-# redirects a write out of the temp home.
+# in_home <home> [VAR=value...] <cmd...>: run with nothing of the caller's
+# environment but PATH, so no CLAUDE_CONFIG_DIR, CODEX_HOME, MURMUR_HOOK_HOME or
+# MU_INIT_HOME redirects a write out of the temp home, and no state dir of the
+# caller's (murmur's, mu's, muzzle's) is touched. The VAR=value pairs are the
+# only variables added. It runs in the home, so a write to a relative path (an
+# empty variable taken for a directory) lands there, where the checks see it.
 in_home() {
 	local home=$1
 	shift
 	mkdir -p "$home"
-	env -i PATH="$PATH" HOME="$home" TMPDIR="$tmp" \
+	(cd "$home" && exec env -i PATH="$PATH" HOME="$home" TMPDIR="$tmp" \
 		XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" \
-		XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" "$@"
+		XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" "$@")
+}
+
+# written <example> <file> <where>: the file the inits wrote is the example, byte
+# for byte; <where> names a moved directory in the check.
+written() {
+	if cmp -s "$root/$1" "$2"; then
+		check "$1 is what the inits write$3" same same
+	else
+		diff -u "$root/$1" "$2" || true
+		check "$1 is what the inits write$3" differs same
+	fi
 }
 
 murmur=$(cli MURMUR_CMD murmur --hooks)
@@ -155,13 +175,7 @@ rc=0
 } >"$tmp/fresh.log" 2>&1 || rc=$?
 check "the inits succeed in an empty home" "$rc" 0
 for entry in "${examples[@]}"; do
-	example=${entry%%:*} written=$fresh/${entry#*:}
-	if cmp -s "$root/$example" "$written"; then
-		check "$example is what the inits write" same same
-	else
-		diff -u "$root/$example" "$written" || true
-		check "$example is what the inits write" differs same
-	fi
+	written "${entry%%:*}" "$fresh/${entry#*:}" ""
 done
 # Hook configs aside, the inits write only state and mu's skill copies (every
 # skill mu ships, not only `mu`).
@@ -171,6 +185,10 @@ check "the inits write no other config file" \
 check "mu's skill lands in claude's and codex's skill dirs" \
 	"$(ls "$fresh/.claude/skills/mu/SKILL.md" "$fresh/.codex/skills/mu/SKILL.md" 2>/dev/null | wc -l | tr -d ' ')" 2
 check "nothing is written under ~/.agents" "$(test -e "$fresh/.agents" && echo yes || echo no)" no
+# murmur 2.x keeps its state in murmur2 and never writes 1.x's murmur directory,
+# so the released 1.x keeps working beside it.
+check "murmur's state is murmur2, not 1.x's murmur" \
+	"$(cd "$fresh/.local/state" && ls -d murmur murmur2 2>/dev/null | tr '\n' ' ')" "murmur2 "
 
 # A home already holding the examples, codex/config.toml included, with no
 # harness named: each init finds the four set up, and changes nothing.
@@ -198,5 +216,109 @@ check "the inits leave the examples as they are" "$changed" ""
 printf 'notify = ["murmur", "notify", "--source", "codex"]\n' >"$seeded/.codex/config.toml"
 check "murmur warns about the older notify line" \
 	"$(in_home "$seeded" "$murmur" init 2>&1 >/dev/null | grep -c notify)" 1
+
+# --- CLAUDE_CONFIG_DIR and CODEX_HOME ------------------------------------------
+# The runs above clear the environment, so they cannot see an init that ignores
+# the variables Claude Code and codex move their directories with. Here both
+# point outside the home: Claude Code's and codex's examples must land in those
+# directories, the Cursor CLI's and Muse Code's still under the home, and
+# nothing under ~/.claude or ~/.codex.
+moved="$tmp/moved"
+claude_dir="$tmp/moved-dirs/claude" codex_dir="$tmp/moved-dirs/codex"
+dirs=(CLAUDE_CONFIG_DIR="$claude_dir" CODEX_HOME="$codex_dir")
+moved_examples=(
+	"claude/settings.json:$claude_dir/settings.json"
+	"codex/hooks.json:$codex_dir/hooks.json"
+	"cursor/hooks.json:$moved/.cursor/hooks.json"
+	"muse/settings.json:$moved/.config/muse/settings.json"
+)
+rc=0
+{
+	in_home "$moved" "${dirs[@]}" "$murmur" init --hooks all &&
+		in_home "$moved" "${dirs[@]}" "$mu" init --harness all &&
+		in_home "$moved" "${dirs[@]}" "$muzzle" init --hooks all
+} >"$tmp/moved.log" 2>&1 || rc=$?
+check "the inits succeed with the directories moved" "$rc" 0
+for entry in "${moved_examples[@]}"; do
+	written "${entry%%:*}" "${entry#*:}" " with the directories moved"
+done
+check "with the directories moved, the home holds only the others' configs" \
+	"$(cd "$moved" && find . -type f ! -path './.local/*' ! -path './.cache/*' ! -path './*/skills/*' | sort | tr '\n' ' ')" \
+	"./.config/muse/settings.json ./.cursor/hooks.json "
+check "with the directories moved, no ~/.claude or ~/.codex" \
+	"$(ls -d "$moved/.claude" "$moved/.codex" 2>/dev/null | wc -l | tr -d ' ')" 0
+check "with the directories moved, they hold only their own configs" \
+	"$(cd "$tmp/moved-dirs" && find . -type f ! -path './*/skills/*' | sort | tr '\n' ' ')" \
+	"./claude/settings.json ./codex/hooks.json "
+check "mu's skill lands in the moved skill dirs" \
+	"$(ls "$claude_dir/skills/mu/SKILL.md" "$codex_dir/skills/mu/SKILL.md" 2>/dev/null | wc -l | tr -d ' ')" 2
+# The Cursor CLI reads only ~/.claude/skills and ~/.codex/skills, both empty
+# here, so it gets a copy of its own; with the defaults it has none.
+check "with the directories moved, the Cursor CLI gets its own mu skill" \
+	"$(ls "$moved/.cursor/skills/mu/SKILL.md" "$fresh/.cursor/skills/mu/SKILL.md" 2>/dev/null | sed "s|^$tmp/||" | tr '\n' ' ')" \
+	"moved/.cursor/skills/mu/SKILL.md "
+
+# The examples already in the moved directories, codex/config.toml included,
+# no harness named: the inits find all four set up and change nothing.
+rc=0
+cp "$root/codex/config.toml" "$codex_dir/config.toml"
+{
+	in_home "$moved" "${dirs[@]}" "$murmur" init &&
+		in_home "$moved" "${dirs[@]}" "$mu" init &&
+		in_home "$moved" "${dirs[@]}" "$muzzle" init
+} >"$tmp/moved-again.out" 2>"$tmp/moved-again.err" || rc=$?
+check "the inits succeed over the moved examples" "$rc" 0
+check "the inits warn about nothing over the moved examples" "$(cat "$tmp/moved-again.err")" ""
+changed=""
+for entry in "${moved_examples[@]}"; do
+	cmp -s "$root/${entry%%:*}" "${entry#*:}" || changed+="${entry%%:*} "
+done
+check "the inits leave the moved examples as they are" "$changed" ""
+check "over the moved examples, still no ~/.claude or ~/.codex" \
+	"$(ls -d "$moved/.claude" "$moved/.codex" 2>/dev/null | wc -l | tr -d ' ')" 0
+
+# Only the moved directories, empty, and no harness named: the inits find Claude
+# Code and codex set up through the variables alone (the runs above name every
+# harness, which skips that check), write their examples there, and skip the
+# Cursor CLI and Muse Code, set up nowhere.
+found="$tmp/found" found_dirs="$tmp/found-dirs"
+fdirs=(CLAUDE_CONFIG_DIR="$found_dirs/claude" CODEX_HOME="$found_dirs/codex")
+mkdir -p "$found_dirs/claude" "$found_dirs/codex"
+rc=0
+{
+	in_home "$found" "${fdirs[@]}" "$murmur" init &&
+		in_home "$found" "${fdirs[@]}" "$mu" init &&
+		in_home "$found" "${fdirs[@]}" "$muzzle" init
+} >"$tmp/found.log" 2>&1 || rc=$?
+check "the inits succeed with only the moved directories" "$rc" 0
+written claude/settings.json "$found_dirs/claude/settings.json" " found through CLAUDE_CONFIG_DIR"
+written codex/hooks.json "$found_dirs/codex/hooks.json" " found through CODEX_HOME"
+check "with only the moved directories, the home holds no config" \
+	"$(cd "$found" && find . -type f ! -path './.local/*' ! -path './.cache/*' | sort | tr '\n' ' ')" ""
+check "with only the moved directories, no ~/.claude or ~/.codex" \
+	"$(ls -d "$found/.claude" "$found/.codex" 2>/dev/null | wc -l | tr -d ' ')" 0
+
+# The control: murmur reads codex's config.toml from CODEX_HOME too.
+printf 'notify = ["murmur", "notify", "--source", "codex"]\n' >"$codex_dir/config.toml"
+check "murmur warns about the older notify line in CODEX_HOME" \
+	"$(in_home "$moved" "${dirs[@]}" "$murmur" init 2>&1 >/dev/null | grep -c notify)" 1
+
+# Set but empty is unset, for all three: the layout of the empty home above.
+empty="$tmp/empty-vars"
+rc=0
+{
+	in_home "$empty" CLAUDE_CONFIG_DIR= CODEX_HOME= "$murmur" init --hooks all &&
+		in_home "$empty" CLAUDE_CONFIG_DIR= CODEX_HOME= "$mu" init --harness all &&
+		in_home "$empty" CLAUDE_CONFIG_DIR= CODEX_HOME= "$muzzle" init --hooks all
+} >"$tmp/empty.log" 2>&1 || rc=$?
+check "the inits succeed with the variables empty" "$rc" 0
+changed=""
+for entry in "${examples[@]}"; do
+	cmp -s "$root/${entry%%:*}" "$empty/${entry#*:}" || changed+="${entry%%:*} "
+done
+check "with the variables empty, the inits write the examples under the home" "$changed" ""
+check "with the variables empty, the inits write no other config file" \
+	"$(cd "$empty" && find . -type f ! -path './.local/*' ! -path './.cache/*' ! -path './*/skills/*' | sort | tr '\n' ' ')" \
+	"./.claude/settings.json ./.codex/hooks.json ./.config/muse/settings.json ./.cursor/hooks.json "
 
 exit $fail
