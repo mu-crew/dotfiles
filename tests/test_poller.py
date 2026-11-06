@@ -91,6 +91,30 @@ class ParserTests(unittest.TestCase):
             poller.darwin_cpu_ticks()
         self.assertEqual(refs(), before)
 
+    def test_darwin_uptime_names_sysctl_by_full_path(self):
+        # sysctl lives in /usr/sbin. run-shell from a server whose PATH lacks
+        # it made a bare "sysctl" a FileNotFoundError: a failed round and no
+        # uptime pill.
+        commands = []
+
+        def run(command):
+            commands.append(command)
+            return "{ sec = 1000, usec = 0 } Thu Jan  1 00:16:40 1970\n"
+
+        with mock.patch.object(poller.platform, "system", return_value="Darwin"), \
+                mock.patch.object(poller, "run", side_effect=run), \
+                mock.patch.object(poller.time, "time", return_value=1000 + 90061):
+            update, code = poller.Poller().uptime()
+        self.assertEqual(commands, [["/usr/sbin/sysctl", "-n", "kern.boottime"]])
+        self.assertEqual((code, update["@mu_crew_uptime_text"]), (0, "1d 1h"))
+
+    @unittest.skipUnless(sys.platform == "darwin", "kern.boottime is read via sysctl on macOS only")
+    def test_darwin_uptime_probe_runs_without_sbin_on_path(self):
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+            update, code = poller.Poller().uptime()
+        self.assertEqual(code, 0)
+        self.assertGreater(int(update["@mu_crew_uptime_value"]), 0)
+
     def test_remote_counts_keep_crew_separate_except_attention(self):
         view = {
             "peers": [{"name": "dev"}],

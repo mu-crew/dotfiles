@@ -274,7 +274,9 @@ class Poller:
 
     def uptime(self) -> tuple[dict[str, str], int]:
         if platform.system() == "Darwin":
-            boot = int(re.search(r"sec = (\d+)", run(["sysctl", "-n", "kern.boottime"])).group(1))
+            # Full path: sysctl is in /usr/sbin, which a minimal PATH (run-shell
+            # from a server started without it) does not hold.
+            boot = int(re.search(r"sec = (\d+)", run(["/usr/sbin/sysctl", "-n", "kern.boottime"])).group(1))
             seconds = int(time.time()) - boot
         else:
             seconds = int(float(Path("/proc/uptime").read_text().split()[0]))

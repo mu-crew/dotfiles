@@ -61,7 +61,8 @@ tmux unbind-key -T prefix a
 tmux unbind-key -T prefix u
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
-check "none leaves a key unbound" "$(bound a | wc -l)" 0
+# BSD wc pads its count with spaces; trim it.
+check "none leaves a key unbound" "$(bound a | wc -l | tr -d ' ')" 0
 check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
 
 # --- part flags ---------------------------------------------------------------------
@@ -246,7 +247,8 @@ tmux source-file "$root/tmux/mu-crew.conf"
 check "@mu_crew_ascii picks ASCII glyphs" "$(tmux show -gv @mu_crew_g_blocked)" "!"
 tmux set -gu @mu_crew_ascii
 tmux source-file "$root/tmux/mu-crew.conf"
-check "default glyphs are Nerd Font" "$(tmux show -gv @mu_crew_g_blocked)" $'\uf075'
+# U+F075 as UTF-8 bytes: bash 3.2 (macOS) does not expand $'\u...'.
+check "default glyphs are Nerd Font" "$(tmux show -gv @mu_crew_g_blocked)" "$(printf '\357\201\265')"
 
 # --- opt-in probes ---------------------------------------------------------------
 check "default probes preserve remote-only behavior" "$(tmux show -gv @mu_crew_probes)" murmur_remote
@@ -272,6 +274,8 @@ check "the config sets no status line" \
 	"$(grep -cE '^set(-option)? .*status-(left|right|format)' "$root/tmux/mu-crew.conf")" 0
 
 # --- poller ---------------------------------------------------------------------
+# PATH here is $tmp/bin:/usr/bin:/bin, with no sbin: a probe that needs a tool
+# from there must name it by full path.
 tmux set -g @mu_crew_probes 'memory cpu uptime'
 "$root/tmux/scripts/mu-crew-poller" --once && rc=0 || rc=$?
 check "local probes succeed" "$rc" 0
