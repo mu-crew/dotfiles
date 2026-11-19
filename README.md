@@ -46,8 +46,8 @@ it; sourcing again with a flag off removes what that part set.
 | Flag | Part |
 | --- | --- |
 | `@mu_crew_hooks` | Focus hooks |
-| `@mu_crew_keys` | `a` / `C-m` / `G` / `u` |
-| `@mu_crew_session_keys` | Forwarding `s` / `g` / `T` to tsesh |
+| `@mu_crew_keys` | `C-m` / `G` / `u` |
+| `@mu_crew_session_keys` | Forwarding `s` / `a` / `g` / `T` to tsesh |
 | `@mu_crew_pane_border` | Pane border format |
 | `@mu_crew_probes` | Poller probes; `none` runs no poller (see [Poller and probes](#poller-and-probes)) |
 
@@ -71,11 +71,10 @@ yourself are kept.
 
 | Key | Does | Option |
 | --- | --- | --- |
-| `a` | Agent picker popup, across every machine murmur peers with | `@mu_crew_key_pick` |
 | `C-m` | Toggle murmur's side panel in this window | `@mu_crew_key_sidepanel` |
 | `G` | Toggle the `murmur dash`: go to it (opening one if none runs), or back from it | `@mu_crew_key_dash` |
 | `u` | Toggle between a workspace session and its mu workstream session (`mu-<name>`) | `@mu_crew_key_workstream` |
-| `s` / `g` / `T` | [tsesh](https://github.com/mu-crew/tmux-session-picker): session picker, last session, session at the pane's directory | `@mu_crew_key_session_{pick,last,root}` |
+| `s` / `a` / `g` / `T` | [tsesh](https://github.com/mu-crew/tmux-session-picker): session picker, agents view (all machines murmur peers with), last session, session at the pane's directory | `@mu_crew_key_session_{pick,agents,last,root}` |
 
 Set an option before sourcing to move a key, or set it to `none` to leave it
 unbound. The session keys are passed on to tsesh's own options, and tsesh binds

@@ -54,25 +54,25 @@ wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 # --- keys --------------------------------------------------------------------
 # `list-keys -T prefix <key>` prints nothing on tmux 3.7; read the whole table.
 bound() { tmux list-keys -T prefix | grep -E "^bind-key +-T prefix $1 " || true; }
-check "picker bound on a" "$(bound a | grep -c 'murmur pick')" 1
+check "mu-crew binds nothing on a" "$(bound a | wc -l | tr -d ' ')" 0
+check "agents key forwards to tsesh" "$(tmux show -gv @tsesh_key_agents)" a
 check "workstream bound on u" "$(bound u | grep -c mu-workstream-pick)" 1
-tmux set -g @mu_crew_key_pick none
-tmux unbind-key -T prefix a
+tmux set -g @mu_crew_key_session_agents none
 tmux unbind-key -T prefix u
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 # BSD wc pads its count with spaces; trim it.
-check "none leaves a key unbound" "$(bound a | wc -l | tr -d ' ')" 0
+check "none forwards as empty, so tsesh leaves the key unbound" "$(tmux show -gqv @tsesh_key_agents)" ""
 check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
 
 # --- part flags ---------------------------------------------------------------------
 # Each part is on by default; "off" before sourcing skips it, and sourcing again
 # with it off removes what it set.
-tmux set -gu @mu_crew_key_pick
+tmux set -gu @mu_crew_key_session_agents
 tmux source-file "$root/tmux/mu-crew.conf"
-wait_for "tmux list-keys -T prefix | grep -q 'murmur pick'" || true
+wait_for "tmux list-keys -T prefix | grep -q 'murmur sidepanel'" || true
 check "hooks on by default" "$(tmux show-hooks -g | grep -c '\[42\]')" 3
-check "keys on by default" "$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream')" 4
+check "keys on by default" "$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream')" 3
 tmux set -g @mu_crew_hooks off
 tmux set -g @mu_crew_keys off
 tmux set -g @mu_crew_pane_border off
@@ -93,15 +93,15 @@ tmux set -gu pane-border-format
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 check "parts come back when the flags are cleared" \
-	"$(tmux show-hooks -g | grep -c '\[42\]') $(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream') $(tmux show -gv @tsesh_key_pick)" "3 4 s"
+	"$(tmux show-hooks -g | grep -c '\[42\]') $(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream') $(tmux show -gv @tsesh_key_pick)$(tmux show -gv @tsesh_key_agents)" "3 3 sa"
 
 # --- tsesh key forwarding --------------------------------------------------------
 check "session keys forward to tsesh" \
-	"$(tmux show -gv @tsesh_key_pick) $(tmux show -gv @tsesh_key_last) $(tmux show -gv @tsesh_key_root)" "s g T"
+	"$(tmux show -gv @tsesh_key_pick) $(tmux show -gv @tsesh_key_agents) $(tmux show -gv @tsesh_key_last) $(tmux show -gv @tsesh_key_root)" "s a g T"
 tmux set -g @mu_crew_key_session_last none
 tmux source-file "$root/tmux/mu-crew.conf"
 check "none forwards as empty, so tsesh leaves it unbound" "$(tmux show -gv @tsesh_key_last)" ""
-check "mu-crew binds no session key itself" "$(tmux list-keys -T prefix | grep -c tsesh)" 0
+check "mu-crew binds no session key itself" "$(tmux list-keys -T prefix | grep -v mu-workstream-pick | grep -c tsesh)" 0
 tmux set -gu @mu_crew_key_session_last
 
 # --- host color ---------------------------------------------------------------
@@ -119,7 +119,6 @@ else
 	echo '{"peers": [], "panes": []}'
 fi
 SH
-tmux set -g @mu_crew_key_pick a
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q 'murmur sidepanel'" || true
 bound 'C-m' | sed -E 's/^bind-key +-T prefix C-m +//' >"$tmp/cmd.conf"
