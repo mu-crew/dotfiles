@@ -6,6 +6,13 @@ dir=$(cd "$(dirname "$0")" && pwd)
 
 key() { tmux show-option -gqv "@mu_crew_key_$1"; }
 
+# Migration: earlier versions bound the murmur picker here (default a). It now
+# belongs to tsesh, so a re-source on a server that loaded the old config drops
+# that binding, on whatever key it sits. Only the old command is matched.
+tmux list-keys -T prefix |
+	awk '$3 == "prefix" && /command -v murmur/ && /murmur pick/ {print $4}' |
+	while read -r k; do tmux unbind-key -T prefix "$k"; done
+
 # @mu_crew_keys off: unbind what this script binds, so re-sourcing with the
 # part off removes it. Only keys still bound to a mu-crew command are touched.
 if [ "$(tmux show-option -gqv @mu_crew_keys)" = off ]; then
