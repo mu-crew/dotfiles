@@ -66,30 +66,48 @@ check "none forwards as empty, so tsesh leaves the key unbound" "$(tmux show -gq
 check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
 
 # --- stale picker binding from an older config ------------------------------------
-# The old config bound the murmur picker itself; re-sourcing must drop it in
-# every mode, on whatever key it sits, and leave a user's own binding alone.
-old_pick() { # $1 = key
-	tmux bind-key -T prefix "$1" if-shell 'command -v murmur >/dev/null 2>&1' \
-		'display-popup -E -w 80% -h 60% "murmur pick"' 'display-message "murmur is not installed"'
+# f7d0708's config bound the murmur picker itself on @mu_crew_key_pick (default
+# a). Sourcing that real config and then this one must drop it in every mode,
+# also on a key tmux prints escaped (#), and leave user bindings alone, even
+# ones that mention murmur pick.
+mkdir -p "$tmp/old"
+git -C "$root" archive f7d0708 tmux | tar xf - -C "$tmp/old"
+user_f8() {
+	tmux bind-key -N 'murmur statistics' -T prefix F8 if-shell 'command -v murmur >/dev/null 2>&1' \
+		'run-shell "murmur status --json --cached"' 'display-message "Install murmur; use murmur pick to find an agent"'
 }
-tmux bind-key -T prefix F run-shell 'echo mine'
-for mode in default off none remap; do
-	old_pick a
-	old_pick A
+f8_before=$(user_f8 && bound F8)
+for mode in default off none remap hash; do
+	tmux set -g @mu_crew_probes none
+	[[ $mode == hash ]] && tmux set -g @mu_crew_key_pick '#'
+	tmux source-file "$tmp/old/tmux/mu-crew.conf"
+	wait_for "tmux list-keys -T prefix | grep -q 'murmur pick\"'" || true
+	check "old config bound its picker ($mode)" "$(tmux list-keys -T prefix | grep -c 'popup .*murmur pick')" 1
+	user_f8
 	case $mode in
 	off) tmux set -g @mu_crew_keys off ;;
 	none) tmux set -g @mu_crew_key_session_agents none ;;
 	remap) tmux set -g @mu_crew_key_session_agents A ;;
 	esac
 	tmux source-file "$root/tmux/mu-crew.conf"
-	wait_for "test -z \"\$(tmux list-keys -T prefix | grep 'murmur pick')\"" || true
-	check "stale murmur picker removed ($mode)" "$(tmux list-keys -T prefix | grep -c 'murmur pick')" 0
+	wait_for "! tmux list-keys -T prefix | grep -q 'popup .*murmur pick'" || true
+	check "stale murmur picker removed ($mode)" "$(tmux list-keys -T prefix | grep -c 'popup .*murmur pick')" 0
+	check "user F8 mentioning murmur pick survives ($mode)" "$(bound F8)" "$f8_before"
 	tmux set -gu @mu_crew_keys
 	tmux set -gu @mu_crew_key_session_agents
+	tmux set -gu @mu_crew_key_pick
+	tmux set -gu @mu_crew_probes
 done
-check "a user binding survives the cleanup" "$(bound F | grep -c 'echo mine')" 1
-tmux unbind-key -T prefix F
+# A user's own binding on the old key is not the old command, so it stays.
+tmux bind-key -T prefix a if-shell 'command -v murmur >/dev/null 2>&1' \
+	'display-popup -E -w 90% -h 60% "murmur pick"' 'display-message "murmur is not installed"'
 tmux source-file "$root/tmux/mu-crew.conf"
+sleep 0.5
+check "a user picker on the old key survives" "$(bound a | grep -c 'w 90%')" 1
+tmux unbind-key -T prefix a
+tmux unbind-key -T prefix F8
+tmux source-file "$root/tmux/mu-crew.conf"
+wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 
 # --- part flags ---------------------------------------------------------------------
 # Each part is on by default; "off" before sourcing skips it, and sourcing again
