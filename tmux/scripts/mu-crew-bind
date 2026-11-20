@@ -6,24 +6,6 @@ dir=$(cd "$(dirname "$0")" && pwd)
 
 key() { tmux show-option -gqv "@mu_crew_key_$1"; }
 
-# Migration: earlier versions bound the murmur picker on @mu_crew_key_pick
-# (default a). It now belongs to tsesh, so a re-source on a server that loaded
-# the old config drops that binding, but only if the key still runs exactly the
-# old command. To compare as tmux prints it, the old command is bound on the
-# same key in a scratch table; padding after the table and key is normalised.
-k=$(key pick)
-[ -n "$k" ] || k=a
-if [ "$k" != none ]; then
-	norm() { tmux list-keys -T "$1" | sed -E 's/^bind-key +(-r +)?-T +[^ ]+ +([^ ]+) +/\1\2 /'; }
-	if tmux bind-key -T mu-crew-legacy "$k" if-shell 'command -v murmur >/dev/null 2>&1' \
-		'display-popup -E -w 80% -h 60% "murmur pick"' \
-		'display-message "murmur is not installed"' 2>/dev/null; then
-		old=$(norm mu-crew-legacy)
-		tmux unbind-key -a -T mu-crew-legacy
-		norm prefix | grep -qxF "$old" && tmux unbind-key -T prefix "$k"
-	fi
-fi
-
 # @mu_crew_keys off: unbind what this script binds, so re-sourcing with the
 # part off removes it. Only keys still bound to a mu-crew command are touched.
 if [ "$(tmux show-option -gqv @mu_crew_keys)" = off ]; then

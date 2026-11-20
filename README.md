@@ -82,6 +82,10 @@ them, so source this file before TPM runs and nothing is bound twice. Most
 terminals send the same code for `C-m` and Enter, so `prefix Enter` opens the
 side panel too.
 
+Upgrading from a version that bound the murmur picker on `a`: tsesh now owns
+that key. With the default key nothing needs doing; if you had moved or turned
+off the picker key, restart tmux (or `unbind-key` the old key) once.
+
 **Pane border.** mu titles each agent's pane with the agent name and its tasks;
 the border shows that title plus murmur's live state. To keep your own
 `pane-border-format`, set `@mu_crew_pane_border off` before sourcing and add
