@@ -71,14 +71,11 @@ check "other keys still bound" "$(bound u | grep -c mu-workstream-pick)" 1
 tmux set -gu @mu_crew_key_session_agents
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q 'murmur sidepanel'" || true
-check "hooks on by default" "$(tmux show-hooks -g | grep -c '\[42\]')" 3
 check "keys on by default" "$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream')" 3
-tmux set -g @mu_crew_hooks off
 tmux set -g @mu_crew_keys off
 tmux set -g @mu_crew_pane_border off
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "! tmux list-keys -T prefix | grep -qE 'murmur|mu-workstream'" || true
-check "hooks off removes the hooks" "$(tmux show-hooks -g | grep -c '\[42\]')" 0
 check "keys off unbinds mu-crew's keys" "$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream')" 0
 check "pane border off resets our format" "$(tmux show -gv pane-border-format | grep -c mu_crew_pane_glyph)" 0
 tmux set -g pane-border-format mine
@@ -88,12 +85,12 @@ tmux set -g @mu_crew_session_keys off
 tmux set -g @tsesh_key_pick X
 tmux source-file "$root/tmux/mu-crew.conf"
 check "session keys off leaves tsesh options alone" "$(tmux show -gv @tsesh_key_pick)" X
-for flag in hooks keys pane_border session_keys; do tmux set -gu "@mu_crew_$flag"; done
+for flag in keys pane_border session_keys; do tmux set -gu "@mu_crew_$flag"; done
 tmux set -gu pane-border-format
 tmux source-file "$root/tmux/mu-crew.conf"
 wait_for "tmux list-keys -T prefix | grep -q mu-workstream-pick" || true
 check "parts come back when the flags are cleared" \
-	"$(tmux show-hooks -g | grep -c '\[42\]') $(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream') $(tmux show -gv @tsesh_key_pick)$(tmux show -gv @tsesh_key_agents)" "3 3 sa"
+	"$(tmux list-keys -T prefix | grep -cE 'murmur|mu-workstream') $(tmux show -gv @tsesh_key_pick)$(tmux show -gv @tsesh_key_agents)" "3 sa"
 
 # --- tsesh key forwarding --------------------------------------------------------
 check "session keys forward to tsesh" \
@@ -128,81 +125,13 @@ check "side panel key passes the pane to murmur" \
 	"$(sed -E 's/%[0-9]+$/%N/' "$tmp/murmur-args" 2>/dev/null)" "sidepanel|%N"
 rm -f "$tmp/bin/murmur"
 
-# --- focus hooks run murmur only when a badge is showing -----------------------
-# murmur is a Node start; a pane, window or session switch with nothing to
-# acknowledge must not run it. Window and session states count too: clear also
-# drops orphan badges that only those levels show.
-fake_murmur <<SH
-#!/bin/sh
-echo "\$*" >>"$tmp/clear.log"
-SH
-# fires <tmux args...>: "yes <murmur args>" if the hook ran murmur, else "no".
-fires() {
-	rm -f "$tmp/clear.log"
-	tmux "$@"
-	if wait_for "test -s $tmp/clear.log" 15; then
-		echo "yes $(sed -E 's/%[0-9]+/%N/' "$tmp/clear.log")"
-	else
-		echo no
-	fi
-}
-tmux new-session -d -s hk
-p0=$(tmux display -p -t hk '#{pane_id}')
-p1=$(tmux split-window -P -F '#{pane_id}' -t hk)
-w2=$(tmux new-window -d -P -F '#{window_id}' -t hk)
-check "no state anywhere: select-pane runs no murmur" "$(fires select-pane -t "$p0")" no
-tmux select-pane -t "$p1"
-tmux set -p -t "$p0" @murmur_pane_state idle
-check "idle pane: select-pane runs no murmur" "$(fires select-pane -t "$p0")" no
-tmux set -p -t "$p1" @murmur_pane_state blocked
-check "blocked pane: select-pane clears it" "$(fires select-pane -t "$p1")" "yes clear --pane %N"
-check "the hook passes the focused pane" "$(cat "$tmp/clear.log")" "clear --pane $p1"
-tmux set -pu -t "$p1" @murmur_pane_state
-tmux set -pu -t "$p0" @murmur_pane_state
-tmux set -w -t "$p0" @murmur_window_state done
-check "orphan window badge: select-pane clears" "$(fires select-pane -t "$p0")" "yes clear --pane %N"
-tmux set -wu -t "$p0" @murmur_window_state
-tmux set -t hk @murmur_session_state crashed
-check "session badge only: select-pane clears" "$(fires select-pane -t "$p1")" "yes clear --pane %N"
-tmux set -u -t hk @murmur_session_state
-check "no badge: select-window runs no murmur" "$(fires select-window -t "$w2")" no
-tmux set -w -t "$w2" @murmur_window_state error
-tmux select-window -t "$p0"
-check "badged window: select-window clears" "$(fires select-window -t "$w2")" "yes clear --pane %N"
-tmux set -wu -t "$w2" @murmur_window_state
-pw2=$(tmux display -p -t "$w2" '#{pane_id}')
-tmux set -p -t "$pw2" @murmur_pane_state done
-tmux select-window -t "$p0"
-check "badged pane: select-window clears" "$(fires select-window -t "$w2")" "yes clear --pane %N"
-tmux set -pu -t "$pw2" @murmur_pane_state
-tmux set -t hk @murmur_session_state crashed
-check "session badge only: select-window clears" "$(fires select-window -t "$p0")" "yes clear --pane %N"
-tmux set -u -t hk @murmur_session_state
-tmux select-window -t "$w2"
-# client-session-changed needs a client: attach one on a pty.
-tmux new-session -d -s hk2
-TERM=xterm python3 -c "import pty; pty.spawn(['tmux','attach','-t','hk'])" >/dev/null 2>&1 &
-client_pid=$!
-wait_for "test -n \"\$(tmux list-clients -F x)\"" || true
-client=$(tmux list-clients -F '#{client_name}' | head -1)
-sleep 0.5
-check "no badge: switch-client runs no murmur" "$(fires switch-client -c "$client" -t hk2)" no
-tmux set -t hk @murmur_session_state blocked
-check "badged session: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
-tmux set -u -t hk @murmur_session_state
-tmux switch-client -c "$client" -t hk2
-tmux set -p -t "$pw2" @murmur_pane_state blocked
-check "badged pane: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
-tmux set -pu -t "$pw2" @murmur_pane_state
-tmux switch-client -c "$client" -t hk2
-tmux set -w -t "$w2" @murmur_window_state done
-check "badged window: switch-client clears" "$(fires switch-client -c "$client" -t hk)" "yes clear --pane %N"
-tmux set -wu -t "$w2" @murmur_window_state
-tmux detach-client -t "$client" 2>/dev/null || true
-kill "$client_pid" 2>/dev/null || true; wait "$client_pid" 2>/dev/null || true
-tmux kill-session -t hk2
-tmux kill-session -t hk
-rm -f "$tmp/bin/murmur"
+# --- focus hooks are gone -------------------------------------------------------
+# vtmux clears done/error on focus natively; the config sets no [42] hook, and
+# sourcing removes ones an older version installed.
+tmux set-hook -g after-select-pane[42] "run-shell true"
+tmux source-file "$root/tmux/mu-crew.conf"
+check "no focus hook is set, old ones are removed" "$(tmux show-hooks -g | grep -c '\[42\]')" 0
+check "no murmur clear in the config" "$(grep -c 'murmur clear' "$root/tmux/mu-crew.conf")" 0
 
 # --- pill ----------------------------------------------------------------------
 check "pill is empty with no agents" "$(tmux display -p '#{E:@mu_crew_pill}')" ""
@@ -231,14 +160,30 @@ tmux set -g @mu_crew_muzzle_held 0
 check "muzzle pill shows a queue with nothing held" "$(tmux display -p '#{E:@mu_crew_muzzle_pill}' | grep -c ' 0/14')" 1
 for o in held budget waiting slow_holders slow_waiters; do tmux set -gu "@mu_crew_muzzle_$o"; done
 
-# --- window glyph -------------------------------------------------------------
-tmux set -w @murmur_window_state blocked
-check "window glyph shows state" "$(tmux display -p '#{E:@mu_crew_window_glyph}' | grep -c fab387)" 1
-tmux set -wu @murmur_window_state
-tmux set -w @murmur_window_has_agent 1
-check "idle agent window shows idle glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}' | grep -c 6c7086)" 1
-tmux set -wu @murmur_window_has_agent
-check "no agent, no glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}')" ""
+# --- window and pane glyphs ---------------------------------------------------
+# #{window_program_state}, #{pane_program_state} and #{pane_program_id} exist
+# only in vtmux (OSC 7501); stock tmux expands them to empty. Detect that, and
+# assert the state mapping only on vtmux. Everything else runs on both.
+probe=$(tmux display -p '#{window_program_state}x#{pane_program_state}x')
+check "plain shell: no window glyph" "$(tmux display -p '#{E:@mu_crew_window_glyph}')" ""
+check "plain shell: no pane glyph" "$(tmux display -p '#{E:@mu_crew_pane_glyph}')" ""
+# Crashed needs only stock tmux: a dead pane with a nonzero exit status.
+tmux set -g remain-on-exit on
+tmux new-session -d -s dead "exit 3"
+wait_for "test \"\$(tmux display -p -t dead '#{pane_dead}')\" = 1" || true
+check "crashed pane glyph" "$(tmux display -p -t dead '#{E:@mu_crew_pane_glyph}' | grep -c f38ba8)" 1
+check "crashed window glyph" "$(tmux display -p -t dead '#{E:@mu_crew_window_glyph}' | grep -c f38ba8)" 1
+tmux kill-session -t dead
+tmux new-session -d -s ok "exit 0"
+wait_for "test \"\$(tmux display -p -t ok '#{pane_dead}')\" = 1" || true
+check "clean exit is not crashed" "$(tmux display -p -t ok '#{E:@mu_crew_pane_glyph}')" ""
+tmux kill-session -t ok
+tmux set -gu remain-on-exit
+if [[ -n ${probe//x/} ]]; then
+	echo "SKIP vtmux state mapping: needs a live OSC 7501 emitter to set state"
+else
+	echo "SKIP vtmux-only: program_state formats are empty on this tmux ($(tmux -V)); state->glyph mapping unasserted"
+fi
 
 # --- ASCII glyphs ---------------------------------------------------------------
 tmux set -g @mu_crew_ascii 1

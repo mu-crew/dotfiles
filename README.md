@@ -4,7 +4,7 @@ tmux, ssh and harness config that makes [mu](https://github.com/mu-crew/mu),
 [murmur](https://github.com/mu-crew/murmur) and
 [mule](https://github.com/mu-crew/mule) work as one setup: agent state in
 your tab bar and pane borders, a status pill, keys for the picker, side panel
-and dash, and the hooks that clear an agent's badge when you look at it.
+and dash.
 
 It adds wiring, not a theme. Your status line, colours and other keys stay
 yours; you place the pieces where you want them.
@@ -45,7 +45,6 @@ it; sourcing again with a flag off removes what that part set.
 
 | Flag | Part |
 | --- | --- |
-| `@mu_crew_hooks` | Focus hooks |
 | `@mu_crew_keys` | `C-m` / `G` / `u` |
 | `@mu_crew_session_keys` | Forwarding `s` / `a` / `g` / `T` to tsesh |
 | `@mu_crew_pane_border` | Pane border format |
@@ -60,12 +59,8 @@ source-file ~/.local/share/mu-crew-dotfiles/tmux/mu-crew.conf
 The formats (pill, glyphs, pills from probes) need no flag: they do nothing
 until you place them.
 
-**Focus hooks.** Selecting an agent's pane, window or session runs
-`murmur clear` for that pane, which acknowledges a `done` or `blocked` badge.
-Without these a badge never clears. Clear runs only when the pane, its window
-or its session shows `done`, `blocked`, `error` or `crashed`, so a switch with
-no badge in sight starts no process. They use hook index 42, so hooks you set
-yourself are kept.
+**Focus clearing** is native: vtmux clears `done` and `error` on focus, so
+no focus hooks are set (sourcing removes the old `[42]` ones).
 
 **Keys**, under the prefix:
 
@@ -99,8 +94,8 @@ remote, memory, CPU, uptime, and muzzle options current. See [Poller and probes]
 | Option | Shows | Reads |
 | --- | --- | --- |
 | `@mu_crew_pill` | Robot icon, then `<count><glyph>` per state, most urgent first, then the crew total. Empty when no agents exist. | `@murmur_count_*`, `@mu_crew_remote_*` |
-| `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news | `@murmur_window_state` |
-| `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state | `@murmur_pane_state` |
+| `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news | `#{window_program_state}` (vtmux OSC 7501) |
+| `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state | `#{pane_program_state}`, `#{pane_program_id}` (vtmux OSC 7501) |
 | `@mu_crew_muzzle_pill` | This host's muzzle slots: `held/budget`, then queued jobs, slow jobs (past their usual run time) and jobs queued 30 s or more, each hidden at zero. Empty when nothing holds or waits. Needs the `muzzle` probe. | `@mu_crew_muzzle_*` |
 | `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |
 | `@mu_crew_cpu_pill` | CPU use | `@mu_crew_cpu` |
@@ -110,7 +105,7 @@ remote, memory, CPU, uptime, and muzzle options current. See [Poller and probes]
 Read them through `#{E:...}` so the colour runs inside apply. They set no
 background, so they take the background of wherever you place them.
 
-murmur also sets `@murmur_session_state` on each session. Session pickers can
+vtmux provides `#{session_program_state}` for each session. Session pickers can
 colour rows from it; [tsesh](https://github.com/mu-crew/tmux-session-picker)
 does.
 
