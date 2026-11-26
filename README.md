@@ -14,8 +14,18 @@ yours; you place the pieces where you want them.
 - tmux 3.3 or newer.
 - murmur, for the keys, the status pill and its counts. Without it the keys
   print "murmur is not installed" and the pill stays empty.
-- vtmux with `set -s vtmux-program-status on`, for live window and pane glyphs
-  (read from OSC 7501). Without it those glyphs stay empty, except `crashed`.
+- vtmux >= 3.8-rc3 with `set -s vtmux-program-status on` (and
+  `set -s vtmux-program-resume on`), for live window and pane glyphs. vtmux
+  and Rex speak the open OSC 7501 (program status) and OSC 7577 (program
+  resume) protocols that pi, Claude Code and Codex emit natively; reading them
+  replaced the hook, inbox and per-pane option machinery and makes decorations
+  instant, with native focus clearing.
+- Vanilla tmux 3.8 works with reduced functionality: it drops both sequences,
+  so window and pane glyphs stay blank (only `crashed` on `remain-on-exit`
+  dead panes works), and murmur 3.0 sees no local panes. [tsesh](https://github.com/mu-crew/tmux-session-picker)
+  keeps its picker but has no session state column. murmur 2.x (branch
+  `release/2.x`) is the clean out for vanilla tmux 3.8. mu's pi workers and
+  mule and muzzle are unaffected.
 - A [Nerd Font](https://www.nerdfonts.com) for the default glyphs. No Nerd
   Font? See [Glyphs](#glyphs).
 - `fzf` for the workstream picker, Python 3.11 or newer for the poller.
