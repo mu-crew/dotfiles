@@ -12,8 +12,10 @@ yours; you place the pieces where you want them.
 ## Requirements
 
 - tmux 3.3 or newer.
-- murmur, for anything agent-related. Without it the keys print "murmur is not
-  installed" and the formats stay empty.
+- murmur, for the keys, the status pill and its counts. Without it the keys
+  print "murmur is not installed" and the pill stays empty.
+- vtmux with `set -s vtmux-program-status on`, for live window and pane glyphs
+  (read from OSC 7501). Without it those glyphs stay empty, except `crashed`.
 - A [Nerd Font](https://www.nerdfonts.com) for the default glyphs. No Nerd
   Font? See [Glyphs](#glyphs).
 - `fzf` for the workstream picker, Python 3.11 or newer for the poller.
@@ -82,7 +84,7 @@ that key. With the default key nothing needs doing; if you had moved or turned
 off the picker key, restart tmux (or `unbind-key` the old key) once.
 
 **Pane border.** mu titles each agent's pane with the agent name and its tasks;
-the border shows that title plus murmur's live state. To keep your own
+the border shows that title plus the pane's live state (vtmux). To keep your own
 `pane-border-format`, set `@mu_crew_pane_border off` before sourcing and add
 `#{E:@mu_crew_pane_glyph}` to your format.
 
@@ -94,7 +96,7 @@ remote, memory, CPU, uptime, and muzzle options current. See [Poller and probes]
 | Option | Shows | Reads |
 | --- | --- | --- |
 | `@mu_crew_pill` | Robot icon, then `<count><glyph>` per state, most urgent first, then the crew total. Empty when no agents exist. | `@murmur_count_*`, `@mu_crew_remote_*` |
-| `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news | `#{window_program_state}` (vtmux OSC 7501) |
+| `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news. `crashed` reflects the active pane only (tmux evaluates `pane_dead` there); other states are window-wide | `#{window_program_state}` (vtmux OSC 7501) |
 | `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state | `#{pane_program_state}`, `#{pane_program_id}` (vtmux OSC 7501) |
 | `@mu_crew_muzzle_pill` | This host's muzzle slots: `held/budget`, then queued jobs, slow jobs (past their usual run time) and jobs queued 30 s or more, each hidden at zero. Empty when nothing holds or waits. Needs the `muzzle` probe. | `@mu_crew_muzzle_*` |
 | `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |

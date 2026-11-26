@@ -129,8 +129,13 @@ rm -f "$tmp/bin/murmur"
 # vtmux clears done/error on focus natively; the config sets no [42] hook, and
 # sourcing removes ones an older version installed.
 tmux set-hook -g after-select-pane[42] "run-shell true"
+tmux set-hook -g after-select-window[42] "run-shell true"
+tmux set-hook -g client-session-changed[42] "run-shell true"
+tmux set-hook -g after-select-pane[7] "run-shell true"
 tmux source-file "$root/tmux/mu-crew.conf"
-check "no focus hook is set, old ones are removed" "$(tmux show-hooks -g | grep -c '\[42\]')" 0
+check "all three [42] focus hooks are removed" "$(tmux show-hooks -g | grep -c '\[42\]')" 0
+check "user [7] hook is kept" "$(tmux show-hooks -g | grep -c 'after-select-pane\[7\]')" 1
+tmux set-hook -gu after-select-pane[7]
 check "no murmur clear in the config" "$(grep -c 'murmur clear' "$root/tmux/mu-crew.conf")" 0
 
 # --- pill ----------------------------------------------------------------------
@@ -179,10 +184,26 @@ wait_for "test \"\$(tmux display -p -t ok '#{pane_dead}')\" = 1" || true
 check "clean exit is not crashed" "$(tmux display -p -t ok '#{E:@mu_crew_pane_glyph}')" ""
 tmux kill-session -t ok
 tmux set -gu remain-on-exit
-if [[ -n ${probe//x/} ]]; then
-	echo "SKIP vtmux state mapping: needs a live OSC 7501 emitter to set state"
+# State mapping runs only under a vtmux that supports program status.
+vtver=$(tmux display -p '#{vtmux_version}')
+if [[ -n $vtver ]] && tmux set -s vtmux-program-status on 2>/dev/null; then
+	osc() { # state id
+		printf "tmux new-session -d -s %s \"printf '\\033]7501;%s;id=%s\\007'; sleep 30\"" "st_$1" "$1" "$2"
+	}
+	for st in blocked error working done idle; do
+		eval "$(osc $st x)"
+		wait_for "test -n \"\$(tmux display -p -t st_$st '#{pane_program_state}')\"" || true
+		check "vtmux $st: pane state" "$(tmux display -p -t st_$st '#{pane_program_state}')" "$st"
+		check "vtmux $st: window glyph set" "$(tmux display -p -t st_$st '#{E:@mu_crew_window_glyph}' | grep -c .)" 1
+		check "vtmux $st: pane glyph set" "$(tmux display -p -t st_$st '#{E:@mu_crew_pane_glyph}' | grep -c .)" 1
+		tmux kill-session -t "st_$st"
+	done
+	eval "$(osc working mu/delegates)"
+	wait_for "test -n \"\$(tmux display -p -t st_working '#{pane_program_state}')\"" || true
+	check "vtmux delegates: pane glyph is waiting colour" "$(tmux display -p -t st_working '#{E:@mu_crew_pane_glyph}' | grep -c "$(tmux show -gv @mu_crew_c_waiting | sed 's/#//')")" 1
+	tmux kill-session -t st_working
 else
-	echo "SKIP vtmux-only: program_state formats are empty on this tmux ($(tmux -V)); state->glyph mapping unasserted"
+	echo "SKIP vtmux state mapping: not vtmux with vtmux-program-status ($(tmux -V))"
 fi
 
 # --- ASCII glyphs ---------------------------------------------------------------
