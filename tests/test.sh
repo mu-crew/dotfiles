@@ -188,7 +188,7 @@ tmux set -gu remain-on-exit
 vtver=$(tmux display -p '#{vtmux_version}')
 if [[ -n $vtver ]] && tmux set -s vtmux-program-status on 2>/dev/null; then
 	osc() { # state id
-		printf "tmux new-session -d -s %s \"printf '\\033]7501;%s;id=%s\\007'; sleep 30\"" "st_$1" "$1" "$2"
+		printf "tmux new-session -d -s %s \"printf '\\033]7501;state=%s:id=%s\\007'; sleep 30\"" "st_$1" "$1" "$2"
 	}
 	for st in blocked error working done idle; do
 		eval "$(osc $st x)"
