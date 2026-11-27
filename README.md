@@ -402,6 +402,28 @@ with the same contents. The Cursor CLI's and Muse Code's stay under `~`.
   because opencode skips a bare file in `plugins/`. It also needs
   `@opencode/plugin` 2.x installed in `~/.config/opencode`.
 
+## Cursor CLI bridge
+
+vtmux and Rex read agent state from OSC 7501, which pi, Claude Code and Codex
+write themselves. The Cursor CLI does not yet, so [`cursor/osc7501`](cursor/osc7501)
+is a hook that turns Cursor's hook payloads into the sequence and writes it to
+the pane's tty (or the nearest ancestor process's tty, when the harness detaches
+hooks from `/dev/tty`). Without it a Cursor pane shows no state in the window
+and pane glyphs. The inits do not write it, so add it by hand to
+`~/.cursor/hooks.json`, next to what they wrote, for `sessionStart`,
+`beforeSubmitPrompt`, `beforeShellExecution`, `stop` and `sessionEnd`:
+
+```json
+{ "command": "$HOME/.local/share/mu-crew-dotfiles/cursor/osc7501" }
+```
+
+With `$OSC7577_TOKEN` set (vtmux `vtmux-program-resume on`) it also signs an OSC
+7577 resume record, `argv=["cursor-agent","--resume",<conversation id>]` plus
+the workspace directory, on `sessionStart` and `beforeSubmitPrompt`, and clears
+it on `sessionEnd`. The record is reported for the hook's parent process, the
+long-lived cursor-agent. It always exits 0 and prints nothing, so it can never
+disturb Cursor. Remove it once Cursor ships native OSC 7501.
+
 ## Tests
 
 ```sh
@@ -413,7 +435,11 @@ the `none` opt-out, the side panel key, glyph defaults and ASCII, the pill and
 window formats, the cheap-tick rule, probe formats, local probes, remote
 counting, the host color, and exit codes. `python3 tests/test_poller.py` covers
 the parsers and probe calculations; `python3 tests/test_host_color.py` pins the
-host color against murmur's.
+host color against murmur's. `python3 tests/test_cursor_osc7501.py` and
+`python3 tests/test_cursor_osc7577.py` cover the [Cursor bridge](#cursor-cli-bridge):
+the sequences it writes, and its OSC 7577 records against a mirror of vtmux's
+verifier (a bad MAC, stale time or malformed body is dropped silently, so the
+pane would just lose its resume record).
 
 It first runs `tests/test_examples.sh`, which checks the
 [harness hook](#harness-hooks) examples against a copy of the three inits'
