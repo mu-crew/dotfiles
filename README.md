@@ -239,13 +239,21 @@ file. Check it with `rex config check`, then `rex config reload`.
 | Option | Default | |
 | --- | --- | --- |
 | `key` | `"cmd+j"` | The key. `false` or `""` binds none; the `agent_jump` action is still there to bind yourself. |
-| `path` | `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` | Where `murmur`, `rex` and what they run live, as a list or a `:` string. The Rex server runs with launchd's `PATH`, which has none of these. `/usr/bin:/bin:/usr/sbin:/sbin` always follow. |
+| `path` | `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, plus the shim directories that exist: `~/.local/share/mise/shims` (and `$MISE_DATA_DIR/shims`), `~/.asdf/shims` (and `$ASDF_DATA_DIR/shims`), `~/.volta/bin` | Where `murmur`, `rex` and what they run live, as a list or a `:` string. Setting it replaces the list. `/usr/bin:/bin:/usr/sbin:/sbin` always follow. |
 | `murmur` | `"murmur"` | The murmur command: a name on `path` or an absolute path. |
 | `rex` | `"rex"` | The rex command, likewise. |
 
 ```lua
 require("mu-crew").setup({ key = "cmd+shift+j", path = { "/opt/tools/bin", "/opt/homebrew/bin" } })
 ```
+
+The Rex server runs with launchd's `PATH`, not your shell's, so a tool that is
+only on your shell's `PATH` is invisible to the switcher. The usual case:
+murmur is `#!/usr/bin/env node`, and node from a version manager lives in a
+shims directory. The default `path` covers mise, asdf and volta; for anything
+else (nvm, a custom prefix) pass `path = { ..., "/dir/with/node" }`. When
+murmur can't run, the picker's error says so, for example "murmur needs node on
+the switcher's PATH; pass path = {...} to setup()".
 
 An action may run 30 seconds. The switcher gives `murmur status` 8 seconds and
 falls back to its cached snapshot for 5 more, and starts a Rex call only when

@@ -68,4 +68,4 @@ check "rex harness ran" "$rc" 0
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1])))' "$tmp/harness.json" >"$tmp/harness" || fail=1
 sed -E 's/^PASS /ok   rex harness: /' "$tmp/harness"
 grep -q '^FAIL' "$tmp/harness" && fail=1
-check "rex harness case count" "$(grep -c '^PASS' "$tmp/harness")" "$([[ ${REX_LIVE:-} == 1 ]] && echo 23 || echo 21)"
+check "rex harness case count" "$(grep -c '^PASS' "$tmp/harness")" "$([[ ${REX_LIVE:-} == 1 ]] && echo 28 || echo 26)"

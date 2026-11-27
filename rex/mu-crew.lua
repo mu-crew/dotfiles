@@ -28,10 +28,16 @@ local function fleet()
 		r, err = rex.exec({ murmur, "status", "--json", "--cached" }, { env = { PATH = path }, timeout = 5 })
 	end
 	if r == nil then
-		error("murmur status: " .. err, 0)
+		error("murmur status: " .. err .. "; is murmur on the switcher's PATH? Pass path = {...} to setup()", 0)
 	end
 	if not r.ok then
-		error("murmur status: " .. (r.timed_out and "timed out" or r.stderr), 0)
+		local stderr = r.stderr or ""
+		-- `#!/usr/bin/env node` with node only in a version manager's shims.
+		local missing = stderr:match("env: ([^:\n]+): No such file")
+		if missing then
+			error("murmur needs " .. missing .. " on the switcher's PATH; pass path = {...} to setup()", 0)
+		end
+		error("murmur status: " .. (r.timed_out and "timed out" or stderr), 0)
 	end
 	local status, bad = rex.json.decode(r.stdout)
 	if status == nil then
@@ -244,17 +250,44 @@ local function run(ctx, args)
 end
 
 -- The Rex server runs with launchd's PATH, which has none of the usual
--- install directories; the system ones are always added after these.
+-- install directories; the system ones are always added after these. Version
+-- manager shim directories follow when they exist, so `#!/usr/bin/env node`
+-- finds node.
+local function is_dir(d)
+	local f = io.open(d .. "/.")
+	if f then
+		f:close()
+		return true
+	end
+	return false
+end
+
 local function default_path()
 	local home = os.getenv("HOME") or ""
-	return { home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" }
+	local dirs = { home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" }
+	local shims = { home .. "/.local/share/mise/shims" }
+	for _, v in ipairs({ { "MISE_DATA_DIR", "/shims" }, { "ASDF_DATA_DIR", "/shims" } }) do
+		local d = os.getenv(v[1])
+		if d and d ~= "" then
+			shims[#shims + 1] = d .. v[2]
+		end
+	end
+	shims[#shims + 1] = home .. "/.asdf/shims"
+	shims[#shims + 1] = home .. "/.volta/bin"
+	for _, d in ipairs(shims) do
+		if is_dir(d) then
+			dirs[#dirs + 1] = d
+		end
+	end
+	return dirs
 end
 
 -- opts (every field optional):
 --   key    key for the switcher (default "cmd+j"); false or "" binds none,
 --          and the action agent_jump is still there to bind yourself
 --   path   directories to find murmur and rex in, a list or a ":" string
---          (default ~/.local/bin, /opt/homebrew/bin, /usr/local/bin)
+--          (default ~/.local/bin, /opt/homebrew/bin, /usr/local/bin, and the
+--          mise, asdf and volta shim directories that exist)
 --   murmur murmur command, a name on path or an absolute path (default "murmur")
 --   rex    rex command, likewise (default "rex")
 function M.setup(opts)

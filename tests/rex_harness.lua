@@ -25,6 +25,7 @@ rex.client = { queue = function(m, a) L("queue:" .. m .. ":" .. rex.json.encode(
 rex.ui = { pick = function(o) fake.picked_items = o.items; L("pick:" .. #o.items .. ":" .. o.items[1].title); return fake.pick, "cancelled" end }
 rex.exec = function(argv, opts)
 	if argv[1] == "murmur" or argv[1] == "/opt/m/murmur" then
+		if fake.murmur_result then fake.murmur_path = opts.env.PATH; return fake.murmur_result end
 		fake.murmur_argv = argv[1]; fake.murmur_path = opts.env.PATH
 		local o = rex.json.encode({ panes = fake.panes }); L("murmur:" .. o:sub(1, 300) .. " n=" .. tostring(fake.panes and #fake.panes) .. " t=" .. type(fake.panes and fake.panes[1])); return { ok = true, stdout = o }
 	end
@@ -143,12 +144,6 @@ case("nil/tmux, session.list fails -> error, no create", {}, function()
 end, function(ok, err, l)
 	assert(not ok); has(err, "session list: boom"); hasnt(l, "session.create") end)
 -- setup options
-case("setup: defaults bind cmd+j, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
-	assert(ok, err); assert(table.concat(binds, ",") == "cmd+j=agent_jump", table.concat(binds, ","))
-	assert(fake.murmur_argv == "murmur", tostring(fake.murmur_argv))
-	local home_dir = os.getenv("HOME") or ""
-	assert(fake.murmur_path == home_dir .. "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path)
-	has(l, '"/bin/sh","-c"'); has(l, '"T","murmur"]'); hasnt(l, "mise") end)
 case("setup: key false binds nothing", home, function() fake.panes = {} ; fake.pick = nil end, function(ok, err)
 	assert(ok, err); assert(#binds == 0, table.concat(binds, ",")) end, { key = false })
 case("setup: key, path, murmur, rex options", remote, function() fake.panes = { pane({ server = { kind = "tmux" } }) }; fake.sessions = { { session_id = "session:HOME1" } } end, function(ok, err, l)
@@ -159,4 +154,49 @@ case("setup: key, path, murmur, rex options", remote, function() fake.panes = { 
 	{ key = "cmd+k", path = { "/a", "/b" }, murmur = "/opt/m/murmur", rex = "/opt/r/rex" })
 case("setup: path as a string", home, function() fake.panes = {}; fake.pick = nil end, function(ok, err)
 	assert(ok, err); assert(fake.murmur_path == "/x:/y:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path) end, { path = "/x:/y" })
+-- default PATH with shim dirs (io.open and os.getenv stubbed)
+local function with_env(env, dirs, f)
+	local go, oo = os.getenv, io.open
+	os.getenv = function(k) if env[k] ~= nil then return env[k] end return go(k) end
+	io.open = function(p, ...)
+		local d = p:match("^(.*)/%.$")
+		if d then
+			if dirs[d] then return { close = function() end } end
+			return nil, "no"
+		end
+		return oo(p, ...)
+	end
+	local ok, err = pcall(f)
+	os.getenv, io.open = go, oo
+	assert(ok, err)
+end
+local SYS = ":/usr/bin:/bin:/usr/sbin:/sbin"
+with_env({ HOME = "/h", MISE_DATA_DIR = "", ASDF_DATA_DIR = "" }, {}, function()
+case("setup: defaults bind cmd+j, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
+	assert(ok, err); assert(table.concat(binds, ",") == "cmd+j=agent_jump", table.concat(binds, ","))
+	assert(fake.murmur_argv == "murmur", tostring(fake.murmur_argv))
+	local home_dir = "/h"
+	assert(fake.murmur_path == home_dir .. "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path)
+	has(l, '"/bin/sh","-c"'); has(l, '"T","murmur"]'); hasnt(l, "mise") end)
+end)
+local E = { HOME = "/h", MISE_DATA_DIR = "/m", ASDF_DATA_DIR = "/a" }
+with_env(E, { ["/h/.local/share/mise/shims"] = 1, ["/m/shims"] = 1, ["/a/shims"] = 1, ["/h/.asdf/shims"] = 1, ["/h/.volta/bin"] = 1 }, function()
+case("setup: default PATH adds existing shim dirs", home, function() fake.panes = {}; fake.pick = nil end, function(ok, err)
+	assert(ok, err); assert(fake.murmur_path == "/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.local/share/mise/shims:/m/shims:/a/shims:/h/.asdf/shims:/h/.volta/bin" .. SYS, fake.murmur_path) end)
+end)
+with_env({ HOME = "/h", MISE_DATA_DIR = "", ASDF_DATA_DIR = "" }, {}, function()
+case("setup: default PATH without shim dirs", home, function() fake.panes = {}; fake.pick = nil end, function(ok, err)
+	assert(ok, err); assert(fake.murmur_path == "/h/.local/bin:/opt/homebrew/bin:/usr/local/bin" .. SYS, fake.murmur_path) end)
+end)
+case("setup: explicit path ignores shim dirs", home, function() fake.panes = {}; fake.pick = nil end, function(ok, err)
+	assert(ok, err); assert(fake.murmur_path == "/x" .. SYS, fake.murmur_path) end, { path = "/x" })
+case("murmur: env node missing -> says why", home, function()
+	fake.murmur_result = { ok = false, stderr = "env: node: No such file or directory\n" } end, function(ok, err)
+	assert(not ok); has(err, "murmur needs node on the switcher's PATH"); has(err, "path = {...}") end)
+case("murmur: cannot exec -> says why", home, function()
+	local orig = rex.exec
+	rex.exec = function(argv, o) if argv[1] == "murmur" then return nil, "spawn failed" end return orig(argv, o) end
+	fake.restore = function() rex.exec = orig end
+end, function(ok, err)
+	fake.restore(); assert(not ok); has(err, "spawn failed"); has(err, "on the switcher's PATH") end)
 return table.concat(results, "\n")
