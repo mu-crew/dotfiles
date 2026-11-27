@@ -1,6 +1,6 @@
 # mu-crew dotfiles
 
-tmux, ssh and harness config that makes [mu](https://github.com/mu-crew/mu),
+tmux, Rex, ssh and harness config that makes [mu](https://github.com/mu-crew/mu),
 [murmur](https://github.com/mu-crew/murmur) and
 [mule](https://github.com/mu-crew/mule) work as one setup: agent state in
 your tab bar and pane borders, a status pill, keys for the picker, side panel
@@ -49,6 +49,8 @@ set -g window-status-current-format ' #I #W#{E:@mu_crew_window_glyph} '
 
 Pin a commit if you manage dotfiles declaratively, and move it forward when
 you update murmur: both sides read the same tmux options.
+
+For the Rex agent switcher, see [Rex](#rex).
 
 ## What sourcing it does
 
@@ -203,6 +205,78 @@ Keep it that way when you extend the config. A new format reads options; if it
 needs data from a program, a long-lived loop writes the data into an option.
 `tests/test.sh` fails if a format in `mu-crew.conf` contains `#(`.
 
+## Rex
+
+Rex gets a key, `cmd+j` by default, that opens a
+picker of every agent murmur sees, Rex or tmux, on this Mac or a peer, and
+jumps to the one you pick. It works from a local or a remote Rex session. A
+Rex agent is focused on the server that owns it; a tmux agent opens in a new
+tab on this Mac running `murmur jump`, which closes when you detach and stays
+open to show a failure.
+
+Requirements:
+
+- Rex.app, with Remote Control on in its settings: the switcher drives the
+  app from the Rex server (it switches sessions and opens tabs).
+- murmur 3.0 or newer, with peers added (`murmur peer`) for remote agents.
+- For Rex agents on another host, that host connected in Rex.app; one it isn't
+  connected to is one the app couldn't show anyway.
+
+Put the clone's `rex/` on `package.path` in `~/.config/rex/init.lua` and call
+`setup`. Nothing happens until you do:
+
+```lua
+package.path = os.getenv("HOME") .. "/.local/share/mu-crew-dotfiles/rex/?.lua;" .. package.path
+require("mu-crew").setup()
+```
+
+Use an absolute path in place of the `os.getenv("HOME")` one if you cloned
+somewhere else. [`rex/init.example.lua`](rex/init.example.lua) is the same
+file. Check it with `rex config check`, then `rex config reload`.
+
+`setup` takes a table; every field is optional:
+
+| Option | Default | |
+| --- | --- | --- |
+| `key` | `"cmd+j"` | The key. `false` or `""` binds none; the `agent_jump` action is still there to bind yourself. |
+| `path` | `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` | Where `murmur`, `rex` and what they run live, as a list or a `:` string. The Rex server runs with launchd's `PATH`, which has none of these. `/usr/bin:/bin:/usr/sbin:/sbin` always follow. |
+| `murmur` | `"murmur"` | The murmur command: a name on `path` or an absolute path. |
+| `rex` | `"rex"` | The rex command, likewise. |
+
+```lua
+require("mu-crew").setup({ key = "cmd+shift+j", path = { "/opt/tools/bin", "/opt/homebrew/bin" } })
+```
+
+An action may run 30 seconds. The switcher gives `murmur status` 8 seconds and
+falls back to its cached snapshot for 5 more, and starts a Rex call only when
+its worst case still fits. With no agents it shows a single "No agents" row.
+
+### Checking it by hand
+
+`tests/test_rex.sh` runs the switcher against stubs; these need a live Rex.app.
+After `rex config reload`:
+
+1. In a local session: `cmd+j` opens the picker and Esc closes it with no
+   effect. A local Rex agent is focused and its session shown. A local tmux
+   agent opens a tab in the session in front and attaches.
+2. In a remote session: `cmd+j` opens over it. A local Rex agent is focused on
+   this Mac and the app switches to it. A tmux agent opens its tab on this
+   Mac, not the remote, and `murmur jump` attaches. A Rex agent on that same
+   remote host is focused there.
+3. A Rex agent on a third connected host is focused there. Its Rex host label
+   (`user@host`) must end in murmur's host name; otherwise the switcher asks
+   every connected server in turn.
+4. With no agents, the picker shows a single "No agents" row, and picking it
+   (Enter) does nothing and shows no error.
+5. Jumping to a Rex agent in another session on the same server focuses the
+   block, then switches to that session.
+6. A remote tmux agent over ssh: the tab attaches, detaching closes it, and a
+   failed `murmur jump` holds the tab with "Press Enter to close."
+7. Over a remote session, the switcher calls this Mac through the local `rex`
+   CLI, run by the Rex server: that server must find `rex` on `path` and
+   reach its own socket.
+8. Your other bindings still work after the reload.
+
 ## ssh
 
 [`ssh/mu-crew.conf`](ssh/mu-crew.conf) is an `Include` for `~/.ssh/config`:
@@ -353,6 +427,18 @@ it skips the second part and prints a `SKIP` line, repeated at the end of
 MURMUR_CMD=../murmur/dist/cli.js MU_CMD=../mu/dist/cli.js \
   MUZZLE_CMD=../muzzle/target/debug/muzzle tests/test.sh
 ```
+
+`tests/test_rex.sh`, also run by `tests/test.sh`, checks the
+[Rex](#rex) switcher: luacheck and `stylua --check` on `rex/`, `rex config check`
+of the example `init.lua` pointed at the checkout, that a bare `require` binds
+nothing, and `tests/rex_harness.lua` run inside Rex with `rex do`. The harness
+stubs murmur and every Rex call and covers a local and a remote session
+(`ctx.server` unset and set): routing, the 30 second deadline, the empty fleet,
+the 128-character tab label, a failing `session.list`, and the `setup`
+options. A missing luacheck, stylua or rex, or no running Rex server, skips its
+part with a `SKIP` line; `--autostart=false` keeps the test from starting a
+server. `REX_LIVE=1` adds two cases that make read-only calls to the running
+server through the `rex` CLI.
 
 ## Related
 
