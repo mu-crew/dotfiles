@@ -424,6 +424,28 @@ it on `sessionEnd`. The record is reported for the hook's parent process, the
 long-lived cursor-agent. It always exits 0 and prints nothing, so it can never
 disturb Cursor. Remove it once Cursor ships native OSC 7501.
 
+## Pi OSC 7577 extension
+
+Pi emits OSC 7501 natively, so it needs no status bridge, but it does not yet
+emit OSC 7577 resume records. Without a live `#{pane_resume_command}`, a
+finished Pi pane loses its idle glyph in tmux and disappears from `murmur` and
+`tsesh` as soon as vtmux clears `done`/`error` on focus.
+
+[`pi/osc7577.ts`](pi/osc7577.ts) signs and writes an OSC 7577 record
+(`argv=["pi","--session",<file>]` plus the session cwd) to `/dev/tty` on
+`session_start` and clears it on `session_shutdown` (not on `/reload`). No-op
+without `$OSC7577_TOKEN` or for ephemeral sessions. Enable it in
+`~/.pi/agent/settings.json`:
+
+```json
+{
+  "extensions": ["~/.local/share/mu-crew-dotfiles/pi/osc7577.ts"]
+}
+```
+
+Or symlink it into `~/.pi/agent/extensions/osc7577.ts`. Remove it once Pi ships
+native OSC 7577.
+
 ## Tests
 
 ```sh
@@ -439,7 +461,8 @@ host color against murmur's. `python3 tests/test_cursor_osc7501.py` and
 `python3 tests/test_cursor_osc7577.py` cover the [Cursor bridge](#cursor-cli-bridge):
 the sequences it writes, and its OSC 7577 records against a mirror of vtmux's
 verifier (a bad MAC, stale time or malformed body is dropped silently, so the
-pane would just lose its resume record).
+pane would just lose its resume record). `node --test tests/test_pi_osc7577.ts`
+checks [`pi/osc7577.ts`](pi/osc7577.ts) against the same verifier.
 
 It first runs `tests/test_examples.sh`, which checks the
 [harness hook](#harness-hooks) examples against a copy of the three inits'
