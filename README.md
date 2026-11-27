@@ -1,508 +1,75 @@
 # mu-crew dotfiles
 
-tmux, Rex, ssh and harness config that makes [mu](https://github.com/mu-crew/mu),
-[murmur](https://github.com/mu-crew/murmur) and
-[mule](https://github.com/mu-crew/mule) work as one setup: agent state in
-your tab bar and pane borders, a status pill, keys for the picker, side panel
-and dash.
+Shared wiring for [mu](https://github.com/mu-crew/mu), [murmur](https://github.com/mu-crew/murmur), [mule](https://github.com/mu-crew/mule) and [muzzle](https://github.com/mu-crew/muzzle): agent state in tmux tabs and pane borders, status pill and system probes, the Rex agent switcher, OSC 7501/7577 harness bridges, notifications, and ssh config.
 
-It adds wiring, not a theme. Your status line, colours and other keys stay
-yours; you place the pieces where you want them.
+It adds wiring, not a theme. Your status line, colours and other keys stay yours.
 
 ## Requirements
 
-- tmux 3.3 or newer.
-- murmur, for the keys, the status pill and its counts. Without it the keys
-  print "murmur is not installed" and the pill stays empty.
-- vtmux >= 3.8-rc3 with `set -s vtmux-program-status on` (and
-  `set -s vtmux-program-resume on`), for live window and pane glyphs. vtmux
-  and Rex speak the open OSC 7501 (program status) and OSC 7577 (program
-  resume) protocols that pi, Claude Code and Codex emit natively; reading them
-  replaced the hook, inbox and per-pane option machinery and makes decorations
-  instant, with native focus clearing.
-- Vanilla tmux 3.8 works with reduced functionality: it drops both sequences,
-  so window and pane glyphs stay blank (only `crashed` on `remain-on-exit`
-  dead panes works), and murmur 3.0 sees no local panes. [tsesh](https://github.com/mu-crew/tmux-session-picker)
-  keeps its picker but has no session state column. murmur 2.x (branch
-  `release/2.x`) is the clean out for vanilla tmux 3.8. mu's pi workers and
-  mule and muzzle are unaffected.
-- A [Nerd Font](https://www.nerdfonts.com) for the default glyphs. No Nerd
-  Font? See [Glyphs](#glyphs).
-- `fzf` for the workstream picker, Python 3.11 or newer for the poller.
+- **vtmux >= 3.8-rc3** (with `set -s vtmux-program-status on` and `set -s vtmux-program-resume on`) or **Rex**, for live OSC 7501/7577 state and native focus clearing.
+  - Vanilla tmux 3.8 works with reduced functionality (no live glyphs; `crashed` dead panes still work). Stay on murmur 2.x (`release/2.x`) for vanilla tmux.
+- **murmur 3.0+** for keys, the status pill, and multi-machine counts (without it, keys report it missing and the pill stays empty).
+- **Nerd Font** for default glyphs (or set `@mu_crew_ascii 1`), **fzf** for the workstream picker, **Python 3.11+** for the poller and Cursor bridge.
 
 ## Install
-
-Clone it anywhere and source it from `~/.tmux.conf`:
 
 ```sh
 git clone https://github.com/mu-crew/dotfiles ~/.local/share/mu-crew-dotfiles
 ```
 
+**tmux** (`~/.tmux.conf`, before TPM):
+
 ```tmux
 source-file ~/.local/share/mu-crew-dotfiles/tmux/mu-crew.conf
 
-# Place the pieces:
 set -ag status-right '#{E:@mu_crew_pill}'
 set -g window-status-format ' #I #W#{E:@mu_crew_window_glyph} '
 set -g window-status-current-format ' #I #W#{E:@mu_crew_window_glyph} '
 ```
 
-Pin a commit if you manage dotfiles declaratively, and move it forward when
-you update murmur: both sides read the same tmux options.
-
-For the Rex agent switcher, see [Rex](#rex).
-
-## What sourcing it does
-
-Each part below is on by default. Set its flag to `off` before sourcing to skip
-it; sourcing again with a flag off removes what that part set.
-
-| Flag | Part |
-| --- | --- |
-| `@mu_crew_keys` | `C-m` / `G` / `u` |
-| `@mu_crew_session_keys` | Forwarding `s` / `a` / `g` / `T` to tsesh |
-| `@mu_crew_pane_border` | Pane border format |
-| `@mu_crew_probes` | Poller probes; `none` runs no poller (see [Poller and probes](#poller-and-probes)) |
-
-```tmux
-set -g @mu_crew_keys off
-set -g @mu_crew_pane_border off
-source-file ~/.local/share/mu-crew-dotfiles/tmux/mu-crew.conf
-```
-
-The formats (pill, glyphs, pills from probes) need no flag: they do nothing
-until you place them.
-
-**Focus clearing** is native: vtmux clears `done` and `error` on focus, so
-no focus hooks are set (sourcing removes the old `[42]` ones).
-
-**Keys**, under the prefix:
-
-| Key | Does | Option |
-| --- | --- | --- |
-| `C-m` | Toggle murmur's side panel in this window | `@mu_crew_key_sidepanel` |
-| `G` | Toggle the `murmur dash`: go to it (opening one if none runs), or back from it | `@mu_crew_key_dash` |
-| `u` | Toggle between a workspace session and its mu workstream session (`mu-<name>`) | `@mu_crew_key_workstream` |
-| `s` / `a` / `g` / `T` | [tsesh](https://github.com/mu-crew/tmux-session-picker): session picker, agents view (all machines murmur peers with), last session, session at the pane's directory | `@mu_crew_key_session_{pick,agents,last,root}` |
-
-Set an option before sourcing to move a key, or set it to `none` to leave it
-unbound. The session keys are passed on to tsesh's own options, and tsesh binds
-them, so source this file before TPM runs and nothing is bound twice. Most
-terminals send the same code for `C-m` and Enter, so `prefix Enter` opens the
-side panel too.
-
-Upgrading from a version that bound the murmur picker on `a`: tsesh now owns
-that key. With the default key nothing needs doing; if you had moved or turned
-off the picker key, restart tmux (or `unbind-key` the old key) once.
-
-**Pane border.** mu titles each agent's pane with the agent name and its tasks;
-the border shows that title plus the pane's live state (vtmux). To keep your own
-`pane-border-format`, set `@mu_crew_pane_border off` before sourcing and add
-`#{E:@mu_crew_pane_glyph}` to your format.
-
-**Poller.** One background Python process per tmux server keeps the enabled
-remote, memory, CPU, uptime, and muzzle options current. See [Poller and probes](#poller-and-probes).
-
-## Formats you place
-
-| Option | Shows | Reads |
-| --- | --- | --- |
-| `@mu_crew_pill` | Robot icon, then `<count><glyph>` per state, most urgent first, then the crew total. Empty when no agents exist. | `@murmur_count_*`, `@mu_crew_remote_*` |
-| `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news. `crashed` reflects the active pane only (tmux evaluates `pane_dead` there); other states are window-wide | `#{window_program_state}` (vtmux OSC 7501) |
-| `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state; a working agent with delegates out shows running + waiting glyph + count (`▶⧗3`), read from `#{@mu_pending}` only while the pane is working and not dead | `#{pane_program_state}`, `#{pane_program_id}` (vtmux OSC 7501), `#{@mu_pending}` (mu) |
-| `@mu_crew_muzzle_pill` | This host's muzzle slots: `held/budget`, then queued jobs, slow jobs (past their usual run time) and jobs queued 30 s or more, each hidden at zero. Empty when nothing holds or waits. Needs the `muzzle` probe. | `@mu_crew_muzzle_*` |
-| `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |
-| `@mu_crew_cpu_pill` | CPU use | `@mu_crew_cpu` |
-| `@mu_crew_uptime` | Compact system uptime | `@mu_crew_uptime_*` |
-| `@mu_crew_host_color` | This host's accent hex, the color murmur gives it everywhere. A value, not a format: use it in a style, `#[bg=#{@mu_crew_host_color}]` | set once at source time |
-
-Read them through `#{E:...}` so the colour runs inside apply. They set no
-background, so they take the background of wherever you place them.
-
-vtmux provides `#{session_program_state}` for each session. Session pickers can
-colour rows from it; [tsesh](https://github.com/mu-crew/tmux-session-picker)
-does.
-
-## Glyphs
-
-The defaults are Nerd Font glyphs, the same ones `murmur dash` draws, so one
-agent looks the same in every surface:
-
-| State | Glyph | Codepoint |
-| --- | --- | --- |
-| crashed | fa-times-circle | U+F057 |
-| blocked | fa-comment | U+F075 |
-| done | fa-check-circle | U+F058 |
-| working | fa-play | U+F04B |
-| waiting | fa-hourglass-half | U+F252 |
-| idle | fa-moon-o | U+F186 |
-| crew | fa-users | U+F0C0 |
-| agent | md-robot | U+F06A9 |
-
-Without a Nerd Font these render as boxes. Set `@mu_crew_ascii 1` before
-sourcing to use `x ! + > - c ai` instead.
-
-To change one glyph or colour, set its option after sourcing:
-`@mu_crew_g_<state>` for glyphs and `@mu_crew_c_<state>` for colours
-(Catppuccin Mocha by default). The defaults sit between `THEME BEGIN` /
-`THEME END` markers, so a theme generator can rewrite them.
-
-## Poller and probes
-
-The poller defaults to remote murmur counts, so an existing setup does not
-start new system probes. To enable more probes, set the space-separated list
-before sourcing the config:
-
-```tmux
-set -g @mu_crew_probes "murmur_remote memory cpu uptime"
-source-file ~/.local/share/mu-crew-dotfiles/tmux/mu-crew.conf
-
-set -ag status-right '#{E:@mu_crew_mem_pill}'
-set -ag status-right '#{E:@mu_crew_cpu_pill}'
-set -ag status-right '#{E:@mu_crew_uptime}'
-```
-
-Each probe has its own interval. Set `@mu_crew_<probe>_interval` in seconds to
-change it. The defaults are 10 seconds for `murmur_remote`, 5 seconds for
-`memory`, `cpu` and `muzzle`, and 60 seconds for `uptime`.
-
-The `muzzle` probe runs `muzzle status --json` (muzzle 0.2.3 for the slow
-counts; an older muzzle shows none) and writes `@mu_crew_muzzle_*`. muzzle
-decides what is slow. A failed call, or no muzzle on PATH, clears the
-options; the probe tries again on its next tick. Place `#{E:@mu_crew_muzzle_pill}` next to `@mu_crew_pill`.
-
-Set `@mu_crew_mem_min`, `@mu_crew_cpu_min`, or `@mu_crew_uptime_min` to show a
-format only above that value. Memory and CPU thresholds are percentages. The
-uptime threshold is seconds. The formats use `@mu_crew_c_mem`,
-`@mu_crew_c_cpu`, and `@mu_crew_c_uptime` for their colours.
-
-Linux memory reports used memory from `/proc/meminfo`. macOS memory reports a
-pressure score from `vm_stat` and `memory_pressure`, including compression and
-swap rates. CPU uses `/proc/stat` deltas on Linux and `top` on macOS.
-
-The pid file is keyed by the tmux socket path. The loop exits when no tmux
-server answers on that socket; a server restarted on the same socket keeps it.
-Run `tmux/scripts/mu-crew-poller --once` to update enabled probes once for
-tests or debugging.
-
-## Why the pill costs nothing
-
-tmux redraws the status line on every pane, window and session event, not only
-every `status-interval`. A 14-window session was measured redrawing 1.2 times
-a second. Anything a status line runs through `#(...)` runs that often, and
-`murmur status` is a Node start: as a `#(...)` it cost most of a CPU core.
-
-So nothing here runs on a redraw:
-
-- murmur writes this host's counts into `@murmur_count_<state>` whenever an
-  agent's state changes. The pill is tmux format arithmetic over those options.
-- Remote peers' counts come from `tmux/scripts/mu-crew-poller`: one loop per
-  tmux server, started when the config is sourced. It runs `murmur status
-  --json` every 10 seconds and writes `@mu_crew_remote_<state>` through tmux
-  options. No peers or no murmur stops that probe without stopping other probes.
-
-Keep it that way when you extend the config. A new format reads options; if it
-needs data from a program, a long-lived loop writes the data into an option.
-`tests/test.sh` fails if a format in `mu-crew.conf` contains `#(`.
-
-## Rex
-
-Rex gets a key, `cmd+j` by default, that opens a
-picker of every agent murmur sees, Rex or tmux, on this Mac or a peer, and
-jumps to the one you pick. It works from a local or a remote Rex session. A
-Rex agent is focused on the server that owns it; a tmux agent opens in a new
-tab on this Mac running `murmur jump`, which closes when you detach and stays
-open to show a failure.
-
-Requirements:
-
-- Rex.app, with Remote Control on in its settings: the switcher drives the
-  app from the Rex server (it switches sessions and opens tabs).
-- murmur 3.0 or newer, with peers added (`murmur peer`) for remote agents.
-- For Rex agents on another host, that host connected in Rex.app; one it isn't
-  connected to is one the app couldn't show anyway.
-
-Put the clone's `rex/` on `package.path` in `~/.config/rex/init.lua` and call
-`setup`. Nothing happens until you do:
+**Rex** (`~/.config/rex/init.lua`):
 
 ```lua
 package.path = os.getenv("HOME") .. "/.local/share/mu-crew-dotfiles/rex/?.lua;" .. package.path
 require("mu-crew").setup()
 ```
 
-Use an absolute path in place of the `os.getenv("HOME")` one if you cloned
-somewhere else. [`rex/init.example.lua`](rex/init.example.lua) is the same
-file. Check it with `rex config check`, then `rex config reload`.
+Pin a commit if you manage dotfiles declaratively, and bump it when updating `murmur`.
 
-`setup` takes a table; every field is optional:
+## What's in this repo
 
-| Option | Default | |
+| Component | Entry point | Docs |
 | --- | --- | --- |
-| `key` | `"cmd+j"` | The key. `false` or `""` binds none; the `agent_jump` action is still there to bind yourself. |
-| `path` | `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, plus the shim directories that exist: `~/.local/share/mise/shims` (and `$MISE_DATA_DIR/shims`), `~/.asdf/shims` (and `$ASDF_DATA_DIR/shims`), `~/.volta/bin` | Where `murmur`, `rex` and what they run live, as a list or a `:` string. Setting it replaces the list. `/usr/bin:/bin:/usr/sbin:/sbin` always follow. |
-| `murmur` | `"murmur"` | The murmur command: a name on `path` or an absolute path. |
-| `rex` | `"rex"` | The rex command, likewise. |
-
-```lua
-require("mu-crew").setup({ key = "cmd+shift+j", path = { "/opt/tools/bin", "/opt/homebrew/bin" } })
-```
-
-The Rex server runs with launchd's `PATH`, not your shell's, so a tool that is
-only on your shell's `PATH` is invisible to the switcher. The usual case:
-murmur is `#!/usr/bin/env node`, and node from a version manager lives in a
-shims directory. The default `path` covers mise, asdf and volta; for anything
-else (nvm, a custom prefix) pass `path = { ..., "/dir/with/node" }`. When
-murmur can't run, the picker's error says so, for example "murmur needs node on
-the switcher's PATH; pass path = {...} to setup()".
-
-An action may run 30 seconds. The switcher gives `murmur status` 8 seconds and
-falls back to its cached snapshot for 5 more, and starts a Rex call only when
-its worst case still fits. With no agents it shows a single "No agents" row.
-
-### Checking it by hand
-
-`tests/test_rex.sh` runs the switcher against stubs; these need a live Rex.app.
-After `rex config reload`:
-
-1. In a local session: `cmd+j` opens the picker and Esc closes it with no
-   effect. A local Rex agent is focused and its session shown. A local tmux
-   agent opens a tab in the session in front and attaches.
-2. In a remote session: `cmd+j` opens over it. A local Rex agent is focused on
-   this Mac and the app switches to it. A tmux agent opens its tab on this
-   Mac, not the remote, and `murmur jump` attaches. A Rex agent on that same
-   remote host is focused there.
-3. A Rex agent on a third connected host is focused there. Its Rex host label
-   (`user@host`) must end in murmur's host name; otherwise the switcher asks
-   every connected server in turn.
-4. With no agents, the picker shows a single "No agents" row, and picking it
-   (Enter) does nothing and shows no error.
-5. Jumping to a Rex agent in another session on the same server focuses the
-   block, then switches to that session.
-6. A remote tmux agent over ssh: the tab attaches, detaching closes it, and a
-   failed `murmur jump` holds the tab with "Press Enter to close."
-7. Over a remote session, the switcher calls this Mac through the local `rex`
-   CLI, run by the Rex server: that server must find `rex` on `path` and
-   reach its own socket.
-8. Your other bindings still work after the reload.
-
-## ssh
-
-[`ssh/mu-crew.conf`](ssh/mu-crew.conf) is an `Include` for `~/.ssh/config`:
-
-- a shared ControlMaster, so murmur can collect from a host that needs a
-  second factor after you log in once;
-- what to do on a host with `MaxSessions 1`, where murmur, mule and your shell
-  must not share one master;
-- mule's own socket, so long jobs never take murmur's slot.
-
-Background: murmur's [SSH.md](https://github.com/mu-crew/murmur/blob/main/SSH.md).
-
-## Host colors
-
-murmur gives every host one accent color: crc32 of its short hostname over
-eight Catppuccin accents. The dash, side panel and picker paint the host in
-it, and the notification hook gets it as `MURMUR_HOST_COLOR`. Sourcing
-`mu-crew.conf` runs [`tmux/scripts/mu-crew-host-color`](tmux/scripts/mu-crew-host-color)
-once and stores this host's accent in `@mu_crew_host_color`, so your status
-line can paint the host in the same color:
-
-```tmux
-set -ag status-right '#[fg=#11111b,bg=#{@mu_crew_host_color},bold] #H #[default]'
-```
-
-The palette list and the hash are mirrored in murmur's `src/dash-paint.ts`;
-both sides pin the same value in a test.
+| tmux status, glyphs, keys, probes | [`tmux/mu-crew.conf`](tmux/mu-crew.conf) | [`docs/tmux.md`](docs/tmux.md) |
+| Rex `cmd+j` agent switcher | [`rex/mu-crew.lua`](rex/mu-crew.lua) | [`docs/rex.md`](docs/rex.md) |
+| Cursor OSC 7501/7577 bridge | [`cursor/osc7501`](cursor/osc7501) | [`docs/harnesses.md`](docs/harnesses.md#cursor-cli-bridge) |
+| Pi OSC 7577 resume extension | [`pi/osc7577.ts`](pi/osc7577.ts) | [`docs/harnesses.md`](docs/harnesses.md#pi-osc-7577-extension) |
+| Harness hook examples (`mu`, `muzzle`, murmur 2.x) | `claude/`, `codex/`, `cursor/`, `muse/` | [`docs/harnesses.md`](docs/harnesses.md#harness-hooks-mu-and-muzzle) |
+| Desktop notifications | [`murmur/on-attention`](murmur/on-attention) | [Notifications](#notifications) |
+| SSH ControlMaster / mule snippet | [`ssh/mu-crew.conf`](ssh/mu-crew.conf) | [ssh](#ssh) |
+| Test suites | `tests/test.sh` + unit tests | [`docs/tests.md`](docs/tests.md) |
 
 ## Notifications
 
-[`murmur/on-attention`](murmur/on-attention) is a notification hook for
-murmur, which runs `~/.config/murmur/on-attention` once for each new `done`,
-`blocked`, `error` or `crashed`. Link it there, or exec it from a hook of
-your own:
+[`murmur/on-attention`](murmur/on-attention) sends one desktop notification per new `done`, `blocked`, `error` or `crashed` event (skipping `done` from orchestrated crew agents):
 
 ```sh
 ln -s ~/.local/share/mu-crew-dotfiles/murmur/on-attention ~/.config/murmur/on-attention
 ```
 
-| OS | Sends with | Urgency |
-| --- | --- | --- |
-| Linux | `notify-send -a murmur` | `done` is normal; `blocked`, `error` and `crashed` are critical |
-| macOS | `terminal-notifier` with the icon, else `osascript` | none |
+- **Linux:** `notify-send -a murmur` (`done` normal; `blocked`/`error`/`crashed` critical). For mako, set `max-icon-size=72` under `[app-name=murmur]` if 64px feels small.
+- **macOS:** `terminal-notifier` (with icon), else `osascript`.
+- **Icons:** 128px rounded frame in `MURMUR_HOST_COLOR` with `MURMUR_GLYPH` in `MURMUR_KIND_COLOR`, rendered once with ImageMagick (`magick`) and cached in `~/.cache/murmur/`. Override fill/font with `MURMUR_ICON_BASE` (default `#1e1e2e`) and `MURMUR_ICON_FONT` (default `JetBrainsMono Nerd Font`). Falls back to no icon if `magick` or the font is missing.
+- **Test:** `MURMUR_KIND=blocked MURMUR_AGENT=test MURMUR_HOST=$(hostname) MURMUR_HOST_COLOR='#cba6f7' MURMUR_GLYPH=$'\uf075' MURMUR_KIND_COLOR='#fab387' murmur/on-attention`.
 
-- Each notification carries a 128px icon: a rounded frame in the host's accent
-  with the event kind's glyph in its color, so you can tell the host and the
-  severity apart at a glance. murmur supplies all three (`MURMUR_HOST_COLOR`,
-  `MURMUR_GLYPH`, `MURMUR_KIND_COLOR`). The host name in the body is in the
-  same accent, where the notifier renders markup.
-- Icons render once with ImageMagick (`magick`) and a Nerd Font, and are cached
-  in `~/.cache/murmur/`. Without `magick`, a Nerd Font, or a murmur that sets
-  the colors, the notification goes out without an icon.
-- A `done` from a crew (orchestrated) agent is skipped: the orchestrator reads
-  it.
-- `MURMUR_ICON_BASE` overrides the icon's inner fill (default `#1e1e2e`) and
-  `MURMUR_ICON_FONT` its font (default `JetBrainsMono Nerd Font`).
-- The notifier may scale icons down. mako's default is 64px; for a larger one:
-  `[app-name=murmur]` then `max-icon-size=72` in the mako config.
-- Test it: `MURMUR_KIND=blocked MURMUR_AGENT=test MURMUR_HOST=$(hostname) MURMUR_HOST_COLOR='#cba6f7' MURMUR_GLYPH=$'\uf075' MURMUR_KIND_COLOR='#fab387' murmur/on-attention`.
+## ssh
 
-## Harness hooks
-
-pi reports to murmur, mu and muzzle from inside the agent, through their pi
-packages. Claude Code, Codex, the Cursor CLI and Muse Code report through
-hooks in their own config files, and three commands write those:
-
-```sh
-murmur init   # agent state: sessions, prompts, permission prompts, turns, interrupts
-mu init       # keep-driving: one Stop hook (not for Muse Code), and mu's skill
-muzzle init   # queueing: a hook before each shell call
-```
-
-Each writes for every harness whose config directory exists; `--hooks
-<list>|all` (murmur, muzzle) or `--harness <list>|all` (mu) writes others too.
-The files are shared: each tool touches only handlers whose command starts
-with its own name, leaves yours where they are, and a second run changes
-nothing. `murmur doctor` and `muzzle doctor` report drift. Codex asks you to
-trust the new hooks once (`/hooks`). The agent must run inside tmux.
-
-The files here are what the three write, in that order, into an empty home.
-They show what lands where; run the `init`s rather than copying them, since
-the `init`s merge into what you already have.
-
-| Harness | Example | Written to |
-| --- | --- | --- |
-| Claude Code | [`claude/settings.json`](claude/settings.json) | `~/.claude/settings.json` |
-| Codex | [`codex/hooks.json`](codex/hooks.json) | `~/.codex/hooks.json` |
-| Cursor CLI | [`cursor/hooks.json`](cursor/hooks.json) | `~/.cursor/hooks.json` |
-| Muse Code | [`muse/settings.json`](muse/settings.json) | the `hooks` key of `~/.config/muse/settings.json` |
-
-`CLAUDE_CONFIG_DIR` and `CODEX_HOME`, when set and not empty, move Claude
-Code's and Codex's files for all three, as they do for the harnesses
-themselves: `$CLAUDE_CONFIG_DIR/settings.json` and `$CODEX_HOME/hooks.json`,
-with the same contents. The Cursor CLI's and Muse Code's stay under `~`.
-
-- [`codex/config.toml`](codex/config.toml) needs nothing from mu-crew. Remove
-  the older `notify = ["murmur", "notify", …]` line: with murmur's hooks in,
-  it reports every finished turn twice.
-- Muse Code gets no `mu hook stop`: a Stop block there does not hand its
-  reason to the model, so a Muse agent keeps driving by the mu skill's rule.
-  murmur's `Interrupt` handler is `async: true`, the only way Muse delivers
-  that event.
-- The Cursor CLI's `mu hook stop` lifts its `loop_limit`; mu caps its own
-  follow-ups (`MU_KEEP_DRIVING_MAX`).
-- `mu init` also copies the skills it ships, `mu` among them, to
-  `~/.claude/skills` and `~/.codex/skills` (or `skills` in the moved
-  directories), never `~/.agents/skills`. The Cursor CLI reads those two
-  literal paths too, and gets `~/.cursor/skills/mu` only when neither holds
-  one. Muse Code installs skills through `muse skills`.
-- opencode keeps its attention-only plugin,
-  [`opencode/plugins/murmur/tui.ts`](opencode/plugins/murmur/tui.ts), which
-  runs `murmur notify` for `done` and `blocked`, not running, idle or crashes.
-  It is an OpenCode 2 TUI plugin. Install it as
-  `~/.config/opencode/plugins/murmur/tui.ts`. It needs a directory of its own,
-  because opencode skips a bare file in `plugins/`. It also needs
-  `@opencode/plugin` 2.x installed in `~/.config/opencode`.
-
-## Cursor CLI bridge
-
-vtmux and Rex read agent state from OSC 7501, which pi, Claude Code and Codex
-write themselves. The Cursor CLI does not yet, so [`cursor/osc7501`](cursor/osc7501)
-is a hook that turns Cursor's hook payloads into the sequence and writes it to
-the pane's tty (or the nearest ancestor process's tty, when the harness detaches
-hooks from `/dev/tty`). Without it a Cursor pane shows no state in the window
-and pane glyphs. The inits do not write it, so add it by hand to
-`~/.cursor/hooks.json`, next to what they wrote, for `sessionStart`,
-`beforeSubmitPrompt`, `beforeShellExecution`, `stop` and `sessionEnd`:
-
-```json
-{ "command": "$HOME/.local/share/mu-crew-dotfiles/cursor/osc7501" }
-```
-
-With `$OSC7577_TOKEN` set (vtmux `vtmux-program-resume on`) it also signs an OSC
-7577 resume record, `argv=["cursor-agent","--resume",<conversation id>]` plus
-the workspace directory, on `sessionStart` and `beforeSubmitPrompt`, and clears
-it on `sessionEnd`. The record is reported for the hook's parent process, the
-long-lived cursor-agent. It always exits 0 and prints nothing, so it can never
-disturb Cursor. Remove it once Cursor ships native OSC 7501.
-
-## Pi OSC 7577 extension
-
-Pi emits OSC 7501 natively, so it needs no status bridge, but it does not yet
-emit OSC 7577 resume records. Without a live `#{pane_resume_command}`, a
-finished Pi pane loses its idle glyph in tmux and disappears from `murmur` and
-`tsesh` as soon as vtmux clears `done`/`error` on focus.
-
-[`pi/osc7577.ts`](pi/osc7577.ts) signs and writes an OSC 7577 record
-(`argv=["pi","--session",<file>]` plus the session cwd) to `/dev/tty` on
-`session_start` and clears it on `session_shutdown` (not on `/reload`). No-op
-without `$OSC7577_TOKEN` or for ephemeral sessions. Enable it in
-`~/.pi/agent/settings.json`:
-
-```json
-{
-  "extensions": ["~/.local/share/mu-crew-dotfiles/pi/osc7577.ts"]
-}
-```
-
-Or symlink it into `~/.pi/agent/extensions/osc7577.ts`. Remove it once Pi ships
-native OSC 7577.
-
-## Tests
-
-```sh
-tests/test.sh
-```
-
-Runs against an isolated tmux server with a fake `murmur` on `PATH`: keys and
-the `none` opt-out, the side panel key, glyph defaults and ASCII, the pill and
-window formats, the cheap-tick rule, probe formats, local probes, remote
-counting, the host color, and exit codes. `python3 tests/test_poller.py` covers
-the parsers and probe calculations; `python3 tests/test_host_color.py` pins the
-host color against murmur's. `python3 tests/test_cursor_osc7501.py` and
-`python3 tests/test_cursor_osc7577.py` cover the [Cursor bridge](#cursor-cli-bridge):
-the sequences it writes, and its OSC 7577 records against a mirror of vtmux's
-verifier (a bad MAC, stale time or malformed body is dropped silently, so the
-pane would just lose its resume record). `node --test tests/test_pi_osc7577.ts`
-checks [`pi/osc7577.ts`](pi/osc7577.ts) against the same verifier.
-
-It first runs `tests/test_examples.sh`, which checks the
-[harness hook](#harness-hooks) examples against a copy of the three inits'
-entry tables, then runs `murmur init`, `mu init` and `muzzle init` into an
-empty temp home and checks that they write the examples byte for byte, and
-that a home already holding them is left as it is with no warning. It repeats
-both with `CLAUDE_CONFIG_DIR` and `CODEX_HOME` pointing outside the home,
-where Claude Code's and Codex's examples must land, that with only those two
-directories there and no harness named the inits find both through the
-variables, and that set but empty they write under the home as if unset. It
-also checks that murmur keeps its state in `murmur2`, never in the 1.x `murmur`
-directory. It takes the CLIs from `PATH`. When one there predates hook entries
-it skips the second part and prints a `SKIP` line, repeated at the end of
-`tests/test.sh`; with
-`REQUIRE_INITS=1` that skip fails instead. Point `MURMUR_CMD`, `MU_CMD` and
-`MUZZLE_CMD` at newer builds to run it anyway:
-
-```sh
-MURMUR_CMD=../murmur/dist/cli.js MU_CMD=../mu/dist/cli.js \
-  MUZZLE_CMD=../muzzle/target/debug/muzzle tests/test.sh
-```
-
-`tests/test_rex.sh`, also run by `tests/test.sh`, checks the
-[Rex](#rex) switcher: luacheck and `stylua --check` on `rex/`, `rex config check`
-of the example `init.lua` pointed at the checkout, that a bare `require` binds
-nothing, and `tests/rex_harness.lua` run inside Rex with `rex do`. The harness
-stubs murmur and every Rex call and covers a local and a remote session
-(`ctx.server` unset and set): routing, the 30 second deadline, the empty fleet,
-the 128-character tab label, a failing `session.list`, and the `setup`
-options. A missing luacheck, stylua or rex, or no running Rex server, skips its
-part with a `SKIP` line; `--autostart=false` keeps the test from starting a
-server. `REX_LIVE=1` adds two cases that make read-only calls to the running
-server through the `rex` CLI.
+[`ssh/mu-crew.conf`](ssh/mu-crew.conf) is an `Include` snippet for `~/.ssh/config`: shared ControlMaster for 2FA hosts, `MaxSessions 1` guidance, and a dedicated socket for `mule`. Background: murmur's [SSH.md](https://github.com/mu-crew/murmur/blob/main/SSH.md).
 
 ## Related
 
-- [mu-crew](https://github.com/mu-crew): the org, with the stance and design
-  rules these files follow.
-- [tsesh](https://github.com/mu-crew/tmux-session-picker): a session
-  picker that shows murmur's session state.
+- [mu-crew](https://github.com/mu-crew): the org, with the stance and design rules these files follow.
+- [tsesh](https://github.com/mu-crew/tmux-session-picker): session picker reading `#{session_program_state}` and murmur's agent list.
 
 ---
 

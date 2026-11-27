@@ -6,7 +6,7 @@ Temporary bridge until Cursor Agent ships native OSC 7501 support (Claude Code
 upstream and remove this script once native support lands. Register it in
 ~/.cursor/hooks.json as `$HOME/.local/share/mu-crew-dotfiles/cursor/osc7501`
 for sessionStart, beforeSubmitPrompt, beforeShellExecution, stop and
-sessionEnd (see the README's "Cursor CLI bridge").
+sessionEnd (see docs/harnesses.md).
 
 Reads one hook JSON payload from stdin, maps it to an OSC 7501 sequence
 (https://www.superlogical.com/rex/docs/build/program-status), and writes it
