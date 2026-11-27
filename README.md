@@ -109,7 +109,7 @@ remote, memory, CPU, uptime, and muzzle options current. See [Poller and probes]
 | --- | --- | --- |
 | `@mu_crew_pill` | Robot icon, then `<count><glyph>` per state, most urgent first, then the crew total. Empty when no agents exist. | `@murmur_count_*`, `@mu_crew_remote_*` |
 | `@mu_crew_window_glyph` | One glyph for the window's most urgent agent state; the idle glyph for an agent window with no news. `crashed` reflects the active pane only (tmux evaluates `pane_dead` there); other states are window-wide | `#{window_program_state}` (vtmux OSC 7501) |
-| `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state | `#{pane_program_state}`, `#{pane_program_id}` (vtmux OSC 7501) |
+| `@mu_crew_pane_glyph` | ` · <glyph>` for the pane's own state; a working agent with delegates out shows running + waiting glyph + count (`▶⧗3`), read from `#{@mu_pending}` only while the pane is working and not dead | `#{pane_program_state}`, `#{pane_program_id}` (vtmux OSC 7501), `#{@mu_pending}` (mu) |
 | `@mu_crew_muzzle_pill` | This host's muzzle slots: `held/budget`, then queued jobs, slow jobs (past their usual run time) and jobs queued 30 s or more, each hidden at zero. Empty when nothing holds or waits. Needs the `muzzle` probe. | `@mu_crew_muzzle_*` |
 | `@mu_crew_mem_pill` | Memory use or macOS memory pressure | `@mu_crew_mem` |
 | `@mu_crew_cpu_pill` | CPU use | `@mu_crew_cpu` |

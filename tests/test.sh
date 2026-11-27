@@ -204,6 +204,35 @@ if [[ -n $vtver ]] && tmux set -s vtmux-program-status on 2>/dev/null; then
 	wait_for "test -n \"\$(tmux display -p -t st_working '#{pane_program_state}')\"" || true
 	check "vtmux delegates: pane glyph is waiting colour" "$(tmux display -p -t st_working '#{E:@mu_crew_pane_glyph}' | grep -c "$(tmux show -gv @mu_crew_c_waiting | sed 's/#//')")" 1
 	tmux kill-session -t st_working
+	# @mu_pending: running + waiting glyph + count while working and alive.
+	pend() { # option-value
+		eval "$(osc working x)"
+		wait_for "test -n \"\$(tmux display -p -t st_working '#{pane_program_state}')\"" || true
+		[[ -n $1 ]] && tmux set -p -t st_working @mu_pending "$1"
+		tmux display -p -t st_working '#{E:@mu_crew_pane_glyph}'
+	}
+	g=$(pend 3)
+	check "vtmux @mu_pending: running+waiting+count" "$(grep -c "$(tmux show -gv @mu_crew_g_working).*$(tmux show -gv @mu_crew_g_waiting).*3" <<<"$g")" 1
+	tmux kill-session -t st_working
+	g=$(pend "")
+	check "vtmux no @mu_pending: waiting glyph absent" "$(grep -c "$(tmux show -gv @mu_crew_g_waiting)" <<<"$g")" 0
+	tmux kill-session -t st_working
+	g=$(pend 0)
+	check "vtmux @mu_pending=0 ignored" "$(grep -c "$(tmux show -gv @mu_crew_g_waiting)" <<<"$g")" 0
+	tmux kill-session -t st_working
+	eval "$(osc idle x)"
+	wait_for "test -n \"\$(tmux display -p -t st_idle '#{pane_program_state}')\"" || true
+	tmux set -p -t st_idle @mu_pending 3
+	check "vtmux idle ignores stale @mu_pending" "$(tmux display -p -t st_idle '#{E:@mu_crew_pane_glyph}' | grep -c "$(tmux show -gv @mu_crew_g_waiting)")" 0
+	tmux kill-session -t st_idle
+	# A dead pane never shows it.
+	tmux set -g remain-on-exit on
+	tmux new-session -d -s st_dead "printf '\\033]7501;state=working\\007'; sleep 1"
+	tmux set -p -t st_dead @mu_pending 3
+	wait_for "test \"\$(tmux display -p -t st_dead '#{pane_dead}')\" = 1" || true
+	check "vtmux dead pane ignores @mu_pending" "$(tmux display -p -t st_dead '#{E:@mu_crew_pane_glyph}' | grep -c "$(tmux show -gv @mu_crew_g_waiting)")" 0
+	tmux kill-session -t st_dead
+	tmux set -gu remain-on-exit
 else
 	echo "SKIP vtmux state mapping: not vtmux with vtmux-program-status ($(tmux -V))"
 fi
