@@ -301,14 +301,18 @@ end
 -- Exits and closes the layer automatically when the user picks or cancels.
 local tsesh_cmd = [[
 export PATH="$0"
-exec "$1" pick-and-connect
+if [ -n "$2" ]; then
+  exec "$1" pick-and-connect --mode "$2"
+else
+  exec "$1" pick-and-connect
+fi
 ]]
 
-local function run_tsesh(ctx)
+local function open_tsesh(ctx, mode)
 	local job = { server = ctx.server, session_id = ctx.session_id, deadline = os.time() + 28 }
 	local layout = rex.layout.block({
 		flavor = "com.superlogical.terminal.shell",
-		options = { command = { "/bin/sh", "-c", tsesh_cmd, path, tsesh_cli } },
+		options = { command = { "/bin/sh", "-c", tsesh_cmd, path, tsesh_cli, mode or "" } },
 	})
 	local session = local_session(job)
 	if not session then
@@ -339,12 +343,21 @@ local function run_tsesh(ctx)
 	local w, err = call(job, THIS_MAC, "session.new_window", {
 		session_id = session,
 		window_label = "tsesh",
+		focus = true,
 		layout = layout,
 	})
 	if type(w) ~= "table" then
 		error("new tab: " .. tostring(err), 0)
 	end
 	show(session, w.window_id)
+end
+
+local function run_tsesh(ctx)
+	return open_tsesh(ctx, nil)
+end
+
+local function run_tsesh_agents(ctx)
+	return open_tsesh(ctx, "agents")
 end
 
 local dash_cmd = [[
@@ -495,6 +508,13 @@ function M.setup(opts)
 		run = run_tsesh,
 	})
 	rex.action({
+		name = "tsesh_agents",
+		title = "Open Agent Picker (tsesh)",
+		description = "Open tsesh in agents mode in a floating Rex pane.",
+		keywords = "tsesh agent picker jump switch murmur tmux rex",
+		run = run_tsesh_agents,
+	})
+	rex.action({
 		name = "murmur_dash",
 		title = "Open Murmur Dash",
 		description = "Open murmur dash in a new Rex tab.",
@@ -519,7 +539,7 @@ function M.setup(opts)
 		end
 	end
 
-	bind_opt(opts.key, "cmd+j", "agent_jump")
+	bind_opt(opts.key, "cmd+j", "tsesh_agents")
 	bind_opt(opts.tsesh_key, false, "tsesh_open")
 	bind_opt(opts.crew_key, false, "agent_jump_crew")
 	bind_opt(opts.dash_key, false, "murmur_dash")
@@ -532,7 +552,7 @@ function M.setup(opts)
 	if leader and leader ~= "" then
 		rex.mode("mu_crew_leader", { exclusive = true })
 		rex.bind("mu_crew_leader/s", "tsesh_open")
-		rex.bind("mu_crew_leader/a", "agent_jump")
+		rex.bind("mu_crew_leader/a", "tsesh_agents")
 		rex.bind("mu_crew_leader/shift+a", "agent_jump_crew")
 		rex.bind("mu_crew_leader/shift+g", "murmur_dash")
 		rex.bind("mu_crew_leader/shift+t", "session_name_from_cwd")
