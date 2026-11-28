@@ -321,10 +321,9 @@ local function run_tsesh(ctx)
 		end
 		return show(s.session_id)
 	end
-	if not job.server and ctx.window_id then
+	if not job.server then
 		local layer, err = call(job, THIS_MAC, "session.new_layer", {
 			session_id = session,
-			window_id = ctx.window_id,
 			bounds = { 0.05, 0.05, 0.9, 0.9 },
 			focus = true,
 			layout = layout,
