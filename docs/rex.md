@@ -26,7 +26,7 @@ require("mu-crew").setup()
 | `cmd+j` | `tsesh_agents` | Floating `tsesh --mode agents` popup (90% layer) |
 | `cmd+b` then `s` | `tsesh_open` | Floating `tsesh` session/project/agent popup (90% layer) |
 | `cmd+b` then `a` | `tsesh_agents` | Floating `tsesh --mode agents` popup |
-| `cmd+b` then `G` | `murmur_dash` | Open or focus `murmur dash` in a Rex tab |
+| `cmd+b` then `G` | `murmur_dash` | Floating `murmur dash` popup (90% layer) |
 | `cmd+b` then `T` | `session_name_from_cwd` | Rename the current Rex session to the focused pane's directory name |
 
 ### Options

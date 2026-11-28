@@ -69,12 +69,10 @@ case("tsesh_open: remote ctx uses home CLI", remote, function() fake.sessions = 
 	assert(ok, err); has(l, "api call session.list"); has(l, "api call session.new_window"); has(l, "queue:session.select") end, nil, "tsesh_open")
 case("tsesh_open: no local session -> creates one", {}, function() end, function(ok, err, l)
 	assert(ok, err); has(l, "call:session.list"); has(l, "call:session.create"); has(l, "session:NEW") end, nil, "tsesh_open")
-case("murmur_dash: opens tab in front session", home, function() end, function(ok, err, l)
-	assert(ok, err); has(l, "call:session.new_window"); has(l, '"window_label":"murmur dash"'); has(l, "queue:session.select") end, nil, "murmur_dash")
-case("murmur_dash: reuses existing murmur dash tab", home, function()
-	fake.windows = { { window_id = "window:EXISTING", label = "murmur dash" } }
-end, function(ok, err, l)
-	assert(ok, err); has(l, "call:session.focus_window"); has(l, "window:EXISTING"); hasnt(l, "call:session.new_window") end, nil, "murmur_dash")
+case("murmur_dash: floating layer in active window", home, function() end, function(ok, err, l)
+	assert(ok, err); has(l, "call:session.new_layer"); has(l, '"label":"murmur dash"') end, nil, "murmur_dash")
+case("murmur_dash: remote ctx opens tab via home CLI", remote, function() fake.sessions = { { session_id = "session:HOME1" } } end, function(ok, err, l)
+	assert(ok, err); has(l, "api call session.new_window"); has(l, "queue:session.select") end, nil, "murmur_dash")
 case("session_name_from_cwd: renames session to cwd basename", { session_id = "session:FRONT", block_id = "block:B1" }, function()
 	fake.block_reply = function() return { foreground = { cwd = "/Users/me/hacking/murmur" }, home = "/Users/me" } end
 end, function(ok, err, l)

@@ -135,34 +135,42 @@ export PATH="$0"
 
 local function run_dash(ctx)
 	local job = { server = ctx.server, session_id = ctx.session_id, deadline = os.time() + 28 }
-	local tab = {
-		window_label = "murmur dash",
-		focus = true,
-		layout = rex.layout.block({
-			flavor = "com.superlogical.terminal.shell",
-			options = { command = { "/bin/sh", "-c", dash_cmd, path, murmur } },
-		}),
-	}
+	local layout = rex.layout.block({
+		flavor = "com.superlogical.terminal.shell",
+		label = "murmur dash",
+		options = { command = { "/bin/sh", "-c", dash_cmd, path, murmur } },
+	})
 	local session = local_session(job)
 	if not session then
-		local s, err = call_local(job, "session.create", { label = "agents", initial_windows = { tab } })
+		local s, err = call_local(job, "session.create", {
+			label = "agents",
+			initial_windows = { { window_label = "murmur dash", layout = layout } },
+		})
 		if type(s) ~= "table" then
 			error("new session: " .. tostring(err), 0)
 		end
 		return show(s.session_id)
 	end
-	-- Reuse an existing "murmur dash" tab in this session rather than stacking duplicates.
-	local view = call_local(job, "session.view", { session_id = session })
-	if type(view) == "table" and type(view.windows) == "table" then
-		for _, win in ipairs(view.windows) do
-			if win.label == "murmur dash" and win.window_id then
-				call_local(job, "session.focus_window", { session_id = session, window_id = win.window_id })
-				return show(session, win.window_id)
-			end
+	if not job.server then
+		local layer, err = call_local(job, "session.new_layer", {
+			session_id = session,
+			bounds = { 0.05, 0.05, 0.9, 0.9 },
+			focus = true,
+			layout = layout,
+		})
+		if type(layer) == "table" then
+			return
+		end
+		if err and tostring(err):find("out of time", 1, true) then
+			error("dash layer: " .. tostring(err), 0)
 		end
 	end
-	tab.session_id = session
-	local w, err = call_local(job, "session.new_window", tab)
+	local w, err = call_local(job, "session.new_window", {
+		session_id = session,
+		window_label = "murmur dash",
+		focus = true,
+		layout = layout,
+	})
 	if type(w) ~= "table" then
 		error("new tab: " .. tostring(err), 0)
 	end
@@ -266,7 +274,7 @@ function M.setup(opts)
 	rex.action({
 		name = "murmur_dash",
 		title = "Open Murmur Dash",
-		description = "Open or focus murmur dash in a Rex tab.",
+		description = "Open murmur dash in a floating Rex pane.",
 		keywords = "murmur dash agents monitor",
 		run = run_dash,
 	})
