@@ -520,22 +520,13 @@ function M.setup(opts)
 		leader = "ctrl+b"
 	end
 	if leader and leader ~= "" then
-		rex.mode("mu_crew_leader")
-		rex.bind("s", "tsesh_open", nil, { mode = "mu_crew_leader" })
-		rex.bind("a", "agent_jump", nil, { mode = "mu_crew_leader" })
-		rex.bind("shift+a", "agent_jump_crew", nil, { mode = "mu_crew_leader" })
-		rex.bind("shift+g", "murmur_dash", nil, { mode = "mu_crew_leader" })
-		rex.bind("shift+t", "session_name_from_cwd", nil, { mode = "mu_crew_leader" })
-		rex.bind("escape", "client.mode.exit", nil, { mode = "mu_crew_leader" })
-		rex.bind(leader, function(ctx)
-			local proc = ctx.block_id
-				and rex.block.call("com.superlogical.terminal", "process", { block_id = ctx.block_id })
-			if proc and proc.foreground and proc.foreground.name == "tmux" then
-				return false
-			end
-			rex.client.queue("client.mode.enter", { name = "mu_crew_leader", once = true })
-			return true
-		end)
+		rex.mode("mu_crew_leader", { exclusive = true })
+		rex.bind("mu_crew_leader/s", "tsesh_open")
+		rex.bind("mu_crew_leader/a", "agent_jump")
+		rex.bind("mu_crew_leader/shift+a", "agent_jump_crew")
+		rex.bind("mu_crew_leader/shift+g", "murmur_dash")
+		rex.bind("mu_crew_leader/shift+t", "session_name_from_cwd")
+		rex.bind(leader, "client.mode.enter", { name = "mu_crew_leader", once = true })
 	end
 end
 

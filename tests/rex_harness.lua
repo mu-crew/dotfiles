@@ -12,15 +12,10 @@ local function L(s) log[#log + 1] = s end
 clock = 1000
 fake = {}
 os.time = function() return clock end
-binds, modes, leader_fn = {}, {}, nil
+binds, modes = {}, {}
 rex.mode = function(name) modes[#modes + 1] = name end
-rex.bind = function(k, a, _args, o)
-	if type(a) == "function" then
-		leader_fn = a
-		binds[#binds + 1] = k .. "=fn"
-	else
-		binds[#binds + 1] = (o and o.mode and (o.mode .. ":") or "") .. k .. "=" .. a
-	end
+rex.bind = function(k, a)
+	binds[#binds + 1] = k .. "=" .. a
 end
 rex.action = function(a) actions[a.name] = a; if a.name == "agent_jump" then action = a end end
 rex.servers = function() return fake.servers end
@@ -74,7 +69,7 @@ end
 
 local results = {}
 local function case(name, ctx, setup, check, opts, act_name)
-	log, clock, binds, modes, leader_fn, actions = {}, 1000, {}, {}, nil, {}
+	log, clock, binds, modes, actions = {}, 1000, {}, {}, {}
 	crew.setup(opts)
 	fake = { servers = { "me@alpha", "me@beta", "me@gamma" }, reply = default_reply, pick = "T" }
 	setup()
@@ -187,8 +182,8 @@ with_env({ HOME = "/h", MISE_DATA_DIR = "", ASDF_DATA_DIR = "" }, {}, function()
 case("setup: defaults bind cmd+j and ctrl+b leader, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
 	assert(ok, err)
 	local b = table.concat(binds, ",")
-	has(b, "cmd+j=agent_jump"); has(b, "mu_crew_leader:s=tsesh_open"); has(b, "mu_crew_leader:a=agent_jump")
-	has(b, "mu_crew_leader:shift+g=murmur_dash"); has(b, "ctrl+b=fn")
+	has(b, "cmd+j=agent_jump"); has(b, "mu_crew_leader/s=tsesh_open"); has(b, "mu_crew_leader/a=agent_jump")
+	has(b, "mu_crew_leader/shift+g=murmur_dash"); has(b, "ctrl+b=client.mode.enter")
 	assert(fake.murmur_argv == "murmur", tostring(fake.murmur_argv))
 	local home_dir = "/h"
 	assert(fake.murmur_path == home_dir .. "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path)
@@ -226,14 +221,4 @@ case("agent_jump_crew: includes hidden crew workers", home, function()
 	fake.panes = { pane({ visible = false, label = "worker-1" }) }; fake.owner = "ctx"
 end, function(ok, err, l)
 	assert(ok, err); has(l, "pick:1:worker-1"); has(l, "call:session.focus_block") end, nil, "agent_jump_crew")
-case("leader: passes ctrl+b through to tmux, enters mode otherwise", home, function()
-	fake.panes = {}; fake.pick = nil
-end, function(ok, err)
-	assert(ok, err); assert(type(leader_fn) == "function")
-	fake.block_reply = function() return { foreground = { name = "tmux" } } end
-	assert(leader_fn({ block_id = "block:1" }) == false)
-	fake.block_reply = function() return { foreground = { name = "zsh" } } end
-	assert(leader_fn({ block_id = "block:1" }) == true)
-	has(table.concat(log, "\n"), "queue:client.mode.enter")
-end)
 return table.concat(results, "\n")
