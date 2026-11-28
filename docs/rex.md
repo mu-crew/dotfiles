@@ -26,7 +26,7 @@ All fields are optional:
 | Option | Default | Notes |
 | --- | --- | --- |
 | `key` | `"cmd+j"` | Direct key for the native agent palette (`agent_jump`). `false` or `""` binds none. |
-| `leader` | `"ctrl+b"` | One-shot leader mode matching tmux (`s` = floating `tsesh`, `a` = `agent_jump`, `A` = `agent_jump_crew`, `G` = `murmur_dash`, `T` = `session_name_from_cwd`). Passes through when the focused pane runs `tmux`. `false` or `""` disables it. |
+| `leader` | `"cmd+b"` | One-shot leader mode matching tmux (`s` = floating `tsesh`, `a` = `agent_jump`, `A` = `agent_jump_crew`, `G` = `murmur_dash`, `T` = `session_name_from_cwd`). Leaves `ctrl+b` free for tmux panes inside Rex. `false` or `""` disables it. |
 | `tsesh_key` | `false` | Optional direct key for `tsesh_open` (floating `tsesh` popup via `session.new_layer`). |
 | `crew_key` | `false` | Optional direct key for `agent_jump_crew` (native palette including hidden crew workers). |
 | `dash_key` | `false` | Optional direct key for `murmur_dash` (opens `murmur dash` in a tab). |

@@ -179,11 +179,11 @@ local function with_env(env, dirs, f)
 end
 local SYS = ":/usr/bin:/bin:/usr/sbin:/sbin"
 with_env({ HOME = "/h", MISE_DATA_DIR = "", ASDF_DATA_DIR = "" }, {}, function()
-case("setup: defaults bind cmd+j and ctrl+b leader, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
+case("setup: defaults bind cmd+j and cmd+b leader, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
 	assert(ok, err)
 	local b = table.concat(binds, ",")
 	has(b, "cmd+j=agent_jump"); has(b, "mu_crew_leader/s=tsesh_open"); has(b, "mu_crew_leader/a=agent_jump")
-	has(b, "mu_crew_leader/shift+g=murmur_dash"); has(b, "ctrl+b=client.mode.enter")
+	has(b, "mu_crew_leader/shift+g=murmur_dash"); has(b, "cmd+b=client.mode.enter")
 	assert(fake.murmur_argv == "murmur", tostring(fake.murmur_argv))
 	local home_dir = "/h"
 	assert(fake.murmur_path == home_dir .. "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path)

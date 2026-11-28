@@ -438,9 +438,9 @@ end
 
 -- opts (every field optional):
 --   key        direct key for the agent switcher (default "cmd+j"); false or "" binds none
---   leader     leader prefix for tmux-matching chords (default "ctrl+b"); false or "" disables
+--   leader     leader prefix for tmux-matching chords (default "cmd+b"); false or "" disables
 --              the leader mode (s=tsesh, a=agent_jump, A=agent_jump_crew, G=murmur_dash,
---              T=session_name_from_cwd). Passes through when the focused pane runs tmux.
+--              T=session_name_from_cwd). Leaves ctrl+b free for tmux panes inside Rex.
 --   tsesh_key  optional direct key for the floating tsesh picker (default false)
 --   crew_key   optional direct key for the crew agent switcher (default false)
 --   dash_key   optional direct key for opening murmur dash in a tab (default false)
@@ -516,7 +516,7 @@ function M.setup(opts)
 
 	local leader = opts.leader
 	if leader == nil then
-		leader = "ctrl+b"
+		leader = "cmd+b"
 	end
 	if leader and leader ~= "" then
 		rex.mode("mu_crew_leader", { exclusive = true })
