@@ -428,6 +428,7 @@ local function default_path()
 	end
 	shims[#shims + 1] = home .. "/.asdf/shims"
 	shims[#shims + 1] = home .. "/.volta/bin"
+	shims[#shims + 1] = home .. "/.tmux/plugins/tmux-session-picker/bin"
 	for _, d in ipairs(shims) do
 		if is_dir(d) then
 			dirs[#dirs + 1] = d

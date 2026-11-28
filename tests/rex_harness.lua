@@ -195,9 +195,9 @@ case("setup: defaults bind cmd+j and ctrl+b leader, generic PATH", home, functio
 	has(l, '"/bin/sh","-c"'); has(l, '"T","murmur"]'); hasnt(l, "mise") end)
 end)
 local E = { HOME = "/h", MISE_DATA_DIR = "/m", ASDF_DATA_DIR = "/a" }
-with_env(E, { ["/h/.local/share/mise/shims"] = 1, ["/m/shims"] = 1, ["/a/shims"] = 1, ["/h/.asdf/shims"] = 1, ["/h/.volta/bin"] = 1 }, function()
+with_env(E, { ["/h/.local/share/mise/shims"] = 1, ["/m/shims"] = 1, ["/a/shims"] = 1, ["/h/.asdf/shims"] = 1, ["/h/.volta/bin"] = 1, ["/h/.tmux/plugins/tmux-session-picker/bin"] = 1 }, function()
 case("setup: default PATH adds existing shim dirs", home, function() fake.panes = {}; fake.pick = nil end, function(ok, err)
-	assert(ok, err); assert(fake.murmur_path == "/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.local/share/mise/shims:/m/shims:/a/shims:/h/.asdf/shims:/h/.volta/bin" .. SYS, fake.murmur_path) end)
+	assert(ok, err); assert(fake.murmur_path == "/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.local/share/mise/shims:/m/shims:/a/shims:/h/.asdf/shims:/h/.volta/bin:/h/.tmux/plugins/tmux-session-picker/bin" .. SYS, fake.murmur_path) end)
 end)
 with_env({ HOME = "/h", MISE_DATA_DIR = "", ASDF_DATA_DIR = "" }, {}, function()
 case("setup: default PATH without shim dirs", home, function() fake.panes = {}; fake.pick = nil end, function(ok, err)
