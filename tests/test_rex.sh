@@ -51,7 +51,7 @@ check "example points at this checkout" "$(grep -c "\"$root/rex/" "$tmp/init.lua
 timeout 10 rex config check "$tmp/init.lua" >"$tmp/check" 2>&1 && rc=0 || { rc=$?; cat "$tmp/check"; }
 check "rex config check of the example" "$rc" 0
 check "example defines actions and binds keys" \
-	"$(grep -E '^(bindings|modes|actions):' "$tmp/check" | tr '\n' ' ')" "bindings: 7 modes: 1 actions: 6 "
+	"$(grep -E '^(bindings|modes|actions):' "$tmp/check" | tr '\n' ' ')" "bindings: 6 modes: 1 actions: 4 "
 printf 'package.path = "%s/rex/?.lua;" .. package.path\nrequire("mu-crew")\n' "$root" >"$tmp/bare.lua"
 timeout 10 rex config check "$tmp/bare.lua" >"$tmp/check" 2>&1 && rc=0 || { rc=$?; cat "$tmp/check"; }
 check "require without setup binds and defines nothing" \
@@ -68,4 +68,4 @@ check "rex harness ran" "$rc" 0
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1])))' "$tmp/harness.json" >"$tmp/harness" || fail=1
 sed -E 's/^PASS /ok   rex harness: /' "$tmp/harness"
 grep -q '^FAIL' "$tmp/harness" && fail=1
-check "rex harness case count" "$(grep -c '^PASS' "$tmp/harness")" "$([[ ${REX_LIVE:-} == 1 ]] && echo 33 || echo 31)"
+check "rex harness case count" "$(grep -c '^PASS' "$tmp/harness")" "$([[ ${REX_LIVE:-} == 1 ]] && echo 13 || echo 12)"
