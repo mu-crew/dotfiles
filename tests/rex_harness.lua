@@ -14,7 +14,7 @@ fake = {}
 os.time = function() return clock end
 binds, modes, leader_fn = {}, {}, nil
 rex.mode = function(name) modes[#modes + 1] = name end
-rex.bind = function(k, a, o)
+rex.bind = function(k, a, _args, o)
 	if type(a) == "function" then
 		leader_fn = a
 		binds[#binds + 1] = k .. "=fn"

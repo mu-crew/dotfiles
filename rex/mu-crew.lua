@@ -521,12 +521,12 @@ function M.setup(opts)
 	end
 	if leader and leader ~= "" then
 		rex.mode("mu_crew_leader")
-		rex.bind("s", "tsesh_open", { mode = "mu_crew_leader" })
-		rex.bind("a", "agent_jump", { mode = "mu_crew_leader" })
-		rex.bind("shift+a", "agent_jump_crew", { mode = "mu_crew_leader" })
-		rex.bind("shift+g", "murmur_dash", { mode = "mu_crew_leader" })
-		rex.bind("shift+t", "session_name_from_cwd", { mode = "mu_crew_leader" })
-		rex.bind("escape", "client.mode.exit", { mode = "mu_crew_leader" })
+		rex.bind("s", "tsesh_open", nil, { mode = "mu_crew_leader" })
+		rex.bind("a", "agent_jump", nil, { mode = "mu_crew_leader" })
+		rex.bind("shift+a", "agent_jump_crew", nil, { mode = "mu_crew_leader" })
+		rex.bind("shift+g", "murmur_dash", nil, { mode = "mu_crew_leader" })
+		rex.bind("shift+t", "session_name_from_cwd", nil, { mode = "mu_crew_leader" })
+		rex.bind("escape", "client.mode.exit", nil, { mode = "mu_crew_leader" })
 		rex.bind(leader, function(ctx)
 			local proc = ctx.block_id
 				and rex.block.call("com.superlogical.terminal", "process", { block_id = ctx.block_id })
