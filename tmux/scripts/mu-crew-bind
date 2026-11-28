@@ -38,9 +38,9 @@ bind "$k" -N "agent side panel (murmur)" "$k" \
 	'display-message "murmur is not installed"'
 
 k=$(key dash)
-bind "$k" -N "toggle the murmur dash" "$k" \
+bind "$k" -N "murmur dash (popup)" "$k" \
 	if-shell 'command -v murmur >/dev/null 2>&1' \
-	'run-shell -b "murmur dash --goto"' \
+	'display-popup -E -w 90% -h 90% "murmur dash --popup"' \
 	'display-message "murmur is not installed"'
 
 k=$(key workstream)

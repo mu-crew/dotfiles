@@ -130,7 +130,7 @@ end
 
 local dash_cmd = [[
 export PATH="$0"
-"$1" dash || { printf '\nPress Enter to close.'; read -r _; }
+"$1" dash --popup || { printf '\nPress Enter to close.'; read -r _; }
 ]]
 
 local function run_dash(ctx)
