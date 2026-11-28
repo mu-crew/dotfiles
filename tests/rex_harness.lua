@@ -60,6 +60,8 @@ local function default_reply(m, a, who)
 	if m == "session.create" then return { session_id = "session:NEW" } end
 	if m == "session.new_window" then return { window_id = "window:NEW" } end
 	if m == "session.new_layer" then return { layer_id = "layer:NEW" } end
+	if m == "session.view" then return { windows = fake.windows or {} } end
+	if m == "session.focus_window" then return { revision = 1 } end
 	if m == "session.set_label" then return { revision = 1 } end
 	if m == "session.focus_block" then
 		if fake.owner == who then return {} end

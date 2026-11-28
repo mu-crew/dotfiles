@@ -349,13 +349,14 @@ end
 
 local dash_cmd = [[
 export PATH="$0"
-exec "$1" dash
+"$1" dash || { printf '\nPress Enter to close.'; read -r _; }
 ]]
 
 local function run_dash(ctx)
 	local job = { server = ctx.server, session_id = ctx.session_id, deadline = os.time() + 28 }
 	local tab = {
 		window_label = "murmur dash",
+		focus = true,
 		layout = rex.layout.block({
 			flavor = "com.superlogical.terminal.shell",
 			options = { command = { "/bin/sh", "-c", dash_cmd, path, murmur } },
@@ -368,6 +369,16 @@ local function run_dash(ctx)
 			error("new session: " .. tostring(err), 0)
 		end
 		return show(s.session_id)
+	end
+	-- Reuse an existing "murmur dash" tab in this session rather than stacking duplicates.
+	local view = call(job, THIS_MAC, "session.view", { session_id = session })
+	if type(view) == "table" and type(view.windows) == "table" then
+		for _, win in ipairs(view.windows) do
+			if win.label == "murmur dash" and win.window_id then
+				call(job, THIS_MAC, "session.focus_window", { session_id = session, window_id = win.window_id })
+				return show(session, win.window_id)
+			end
+		end
 	end
 	tab.session_id = session
 	local w, err = call(job, THIS_MAC, "session.new_window", tab)
