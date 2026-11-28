@@ -25,10 +25,16 @@ All fields are optional:
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `key` | `"cmd+j"` | Key binding. `false` or `""` binds none (the `agent_jump` action stays available to bind yourself). |
-| `path` | `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, plus existing shims (`mise`, `asdf`, `volta`) | List or `:` string where `murmur` and `rex` live. Setting it replaces the list; `/usr/bin:/bin:/usr/sbin:/sbin` always follow. |
+| `key` | `"cmd+j"` | Direct key for the native agent palette (`agent_jump`). `false` or `""` binds none. |
+| `leader` | `"ctrl+b"` | One-shot leader mode matching tmux (`s` = floating `tsesh`, `a` = `agent_jump`, `A` = `agent_jump_crew`, `G` = `murmur_dash`, `T` = `session_name_from_cwd`). Passes through when the focused pane runs `tmux`. `false` or `""` disables it. |
+| `tsesh_key` | `false` | Optional direct key for `tsesh_open` (floating `tsesh` popup via `session.new_layer`). |
+| `crew_key` | `false` | Optional direct key for `agent_jump_crew` (native palette including hidden crew workers). |
+| `dash_key` | `false` | Optional direct key for `murmur_dash` (opens `murmur dash` in a tab). |
+| `rename_key` | `false` | Optional direct key for `session_name_from_cwd` (renames the current session to the focused pane's directory name). |
+| `path` | `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, plus existing shims (`mise`, `asdf`, `volta`) | List or `:` string where `murmur`, `rex`, and `tsesh` live. Setting it replaces the list; `/usr/bin:/bin:/usr/sbin:/sbin` always follow. |
 | `murmur` | `"murmur"` | Command name on `path` or absolute path. |
 | `rex` | `"rex"` | Command name on `path` or absolute path. |
+| `tsesh` | `"tsesh"` | Command name on `path` or absolute path. |
 
 ```lua
 require("mu-crew").setup({

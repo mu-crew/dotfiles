@@ -7,17 +7,26 @@ local root = rex.args.root
 local live = tostring(rex.args.live) == "1"
 local real_exec = rex.exec
 
-log, action = {}, nil
+log, action, actions = {}, nil, {}
 local function L(s) log[#log + 1] = s end
 clock = 1000
 fake = {}
 os.time = function() return clock end
-binds = {}
-rex.bind = function(k, a) binds[#binds + 1] = k .. "=" .. a end
-rex.action = function(a) action = a end
+binds, modes, leader_fn = {}, {}, nil
+rex.mode = function(name) modes[#modes + 1] = name end
+rex.bind = function(k, a, o)
+	if type(a) == "function" then
+		leader_fn = a
+		binds[#binds + 1] = k .. "=fn"
+	else
+		binds[#binds + 1] = (o and o.mode and (o.mode .. ":") or "") .. k .. "=" .. a
+	end
+end
+rex.action = function(a) actions[a.name] = a; if a.name == "agent_jump" then action = a end end
 rex.servers = function() return fake.servers end
 rex.call = function(m, a) L("call:" .. m .. ":" .. rex.json.encode(a)); clock = clock + (fake.ctx_cost or 0); return fake.reply(m, a, "ctx") end
 rex.session = {}
+rex.block = { call = function(f, m, a) L("block:" .. f .. ":" .. m); return fake.block_reply and fake.block_reply(f, m, a) or nil end }
 rex.server = function(label)
 	return { call = function(m, a) L("server[" .. label .. "]:" .. m); clock = clock + (fake.peer_cost or 0); return fake.reply(m, a, label) end }
 end
@@ -55,6 +64,8 @@ local function default_reply(m, a, who)
 	if m == "session.list" then return { sessions = fake.sessions or {} } end
 	if m == "session.create" then return { session_id = "session:NEW" } end
 	if m == "session.new_window" then return { window_id = "window:NEW" } end
+	if m == "session.new_layer" then return { layer_id = "layer:NEW" } end
+	if m == "session.set_label" then return { revision = 1 } end
 	if m == "session.focus_block" then
 		if fake.owner == who then return {} end
 		return nil, "session_not_found"
@@ -62,13 +73,14 @@ local function default_reply(m, a, who)
 end
 
 local results = {}
-local function case(name, ctx, setup, check, opts)
-	log, clock, binds = {}, 1000, {}
+local function case(name, ctx, setup, check, opts, act_name)
+	log, clock, binds, modes, leader_fn, actions = {}, 1000, {}, {}, nil, {}
 	crew.setup(opts)
 	fake = { servers = { "me@alpha", "me@beta", "me@gamma" }, reply = default_reply, pick = "T" }
 	setup()
 	L("setup panes=" .. tostring(fake.panes and #fake.panes))
-	local ok, err = pcall(action.run, ctx, {})
+	local target_action = act_name and actions[act_name] or action
+	local ok, err = pcall(target_action.run, ctx, {})
 	local good, why = pcall(check, ok, err, table.concat(log, "\n"))
 	results[#results + 1] = (good and "PASS " or "FAIL ") .. name .. (good and "" or (": " .. tostring(why) .. "\n  err=" .. tostring(err) .. "\n  log=" .. table.concat(log, " | ")))
 end
@@ -144,10 +156,10 @@ case("nil/tmux, session.list fails -> error, no create", {}, function()
 end, function(ok, err, l)
 	assert(not ok); has(err, "session list: boom"); hasnt(l, "session.create") end)
 -- setup options
-case("setup: key false binds nothing", home, function() fake.panes = {} ; fake.pick = nil end, function(ok, err)
-	assert(ok, err); assert(#binds == 0, table.concat(binds, ",")) end, { key = false })
+case("setup: key and leader false binds nothing", home, function() fake.panes = {} ; fake.pick = nil end, function(ok, err)
+	assert(ok, err); assert(#binds == 0, table.concat(binds, ",")) end, { key = false, leader = false })
 case("setup: key, path, murmur, rex options", remote, function() fake.panes = { pane({ server = { kind = "tmux" } }) }; fake.sessions = { { session_id = "session:HOME1" } } end, function(ok, err, l)
-	assert(ok, err); assert(table.concat(binds, ",") == "cmd+k=agent_jump", table.concat(binds, ","))
+	assert(ok, err); has(table.concat(binds, ","), "cmd+k=agent_jump")
 	assert(fake.murmur_argv == "/opt/m/murmur"); assert(fake.rex_argv == "/opt/r/rex")
 	assert(fake.murmur_path == "/a:/b:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path)
 	has(fake.last_cli_json, "/opt/m/murmur") end,
@@ -172,8 +184,11 @@ local function with_env(env, dirs, f)
 end
 local SYS = ":/usr/bin:/bin:/usr/sbin:/sbin"
 with_env({ HOME = "/h", MISE_DATA_DIR = "", ASDF_DATA_DIR = "" }, {}, function()
-case("setup: defaults bind cmd+j, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
-	assert(ok, err); assert(table.concat(binds, ",") == "cmd+j=agent_jump", table.concat(binds, ","))
+case("setup: defaults bind cmd+j and ctrl+b leader, generic PATH", home, function() fake.panes = { pane({ server = { kind = "tmux" } }) } end, function(ok, err, l)
+	assert(ok, err)
+	local b = table.concat(binds, ",")
+	has(b, "cmd+j=agent_jump"); has(b, "mu_crew_leader:s=tsesh_open"); has(b, "mu_crew_leader:a=agent_jump")
+	has(b, "mu_crew_leader:shift+g=murmur_dash"); has(b, "ctrl+b=fn")
 	assert(fake.murmur_argv == "murmur", tostring(fake.murmur_argv))
 	local home_dir = "/h"
 	assert(fake.murmur_path == home_dir .. "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", fake.murmur_path)
@@ -199,4 +214,26 @@ case("murmur: cannot exec -> says why", home, function()
 	fake.restore = function() rex.exec = orig end
 end, function(ok, err)
 	fake.restore(); assert(not ok); has(err, "spawn failed"); has(err, "on the switcher's PATH") end)
+case("tsesh_open: floating layer in active window", { session_id = "session:FRONT", window_id = "window:W1" }, function() end, function(ok, err, l)
+	assert(ok, err); has(l, "call:session.new_layer"); has(l, '"window_id":"window:W1"'); has(l, '"tsesh"') end, nil, "tsesh_open")
+case("murmur_dash: opens tab in front session", home, function() end, function(ok, err, l)
+	assert(ok, err); has(l, "call:session.new_window"); has(l, '"window_label":"murmur dash"') end, nil, "murmur_dash")
+case("session_name_from_cwd: renames session to cwd basename", { session_id = "session:FRONT", block_id = "block:B1" }, function()
+	fake.block_reply = function() return { foreground = { cwd = "/Users/me/hacking/murmur" }, home = "/Users/me" } end
+end, function(ok, err, l)
+	assert(ok, err); has(l, "call:session.set_label"); has(l, '"label":"murmur"') end, nil, "session_name_from_cwd")
+case("agent_jump_crew: includes hidden crew workers", home, function()
+	fake.panes = { pane({ visible = false, label = "worker-1" }) }; fake.owner = "ctx"
+end, function(ok, err, l)
+	assert(ok, err); has(l, "pick:1:worker-1"); has(l, "call:session.focus_block") end, nil, "agent_jump_crew")
+case("leader: passes ctrl+b through to tmux, enters mode otherwise", home, function()
+	fake.panes = {}; fake.pick = nil
+end, function(ok, err)
+	assert(ok, err); assert(type(leader_fn) == "function")
+	fake.block_reply = function() return { foreground = { name = "tmux" } } end
+	assert(leader_fn({ block_id = "block:1" }) == false)
+	fake.block_reply = function() return { foreground = { name = "zsh" } } end
+	assert(leader_fn({ block_id = "block:1" }) == true)
+	has(table.concat(log, "\n"), "queue:client.mode.enter")
+end)
 return table.concat(results, "\n")

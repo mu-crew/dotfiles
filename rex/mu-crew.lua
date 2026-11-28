@@ -15,12 +15,12 @@ local M = {}
 -- are another matter: see call below.
 
 -- Set by setup.
-local path, murmur, rex_cli
+local path, murmur, rex_cli, tsesh_cli
 
--- Most urgent first; the rest keep murmur's order.
-local rank = { blocked = 1, waiting = 2, error = 3, done = 4, working = 5, idle = 6 }
+-- Most urgent first (matches murmur's priority order); the rest keep murmur's order.
+local rank = { error = 1, blocked = 2, done = 3, working = 4, waiting = 5, idle = 6 }
 
-local function fleet()
+local function fleet(include_crew)
 	-- Live first; a slow peer must not eat the action's 30 s, so fall back to
 	-- the snapshots murmur already has.
 	local r, err = rex.exec({ murmur, "status", "--json" }, { env = { PATH = path }, timeout = 8 })
@@ -47,7 +47,7 @@ local function fleet()
 	for i, p in ipairs(status.panes or {}) do
 		-- visible is murmur's own filter (it hides finished crew workers); a
 		-- crashed pane is gone, so there is nothing to jump to.
-		if p.visible and p.render_state ~= "crashed" and p.jump_target then
+		if (include_crew or p.visible) and p.render_state ~= "crashed" and p.jump_target then
 			p.order = i
 			panes[#panes + 1] = p
 		end
@@ -195,10 +195,27 @@ local function jump_tmux(job, p)
 	show(session, w.window_id)
 end
 
-local function run(ctx, args)
+local function format_age(updated_at)
+	if type(updated_at) ~= "number" then
+		return nil
+	end
+	local secs = math.floor(os.time() - updated_at / 1000)
+	if secs < 60 then
+		return nil
+	end
+	if secs < 3600 then
+		return math.floor(secs / 60) .. "m"
+	end
+	if secs < 86400 then
+		return math.floor(secs / 3600) .. "h"
+	end
+	return math.floor(secs / 86400) .. "d"
+end
+
+local function run_jump(ctx, args, include_crew)
 	-- Only time spent running counts toward the 30 s, not the pick.
 	local started = os.time()
-	local panes = fleet()
+	local panes = fleet(include_crew)
 	local used = os.time() - started
 	local target = args.target
 	if target == nil then
@@ -208,15 +225,22 @@ local function run(ctx, args)
 			if p.window_name and p.window_name ~= "" then
 				where = where .. "/" .. p.window_name
 			end
+			local parts = { p.host }
+			if p.workstream and p.workstream ~= "" and p.workstream ~= p.label then
+				parts[#parts + 1] = p.workstream
+			elseif where ~= "" then
+				parts[#parts + 1] = where
+			end
+			parts[#parts + 1] = p.harness or p.cli or "?"
+			parts[#parts + 1] = p.server.kind == "rex" and "rex" or "tmux"
+			local elapsed = format_age(p.updated_at)
+			if elapsed then
+				parts[#parts + 1] = elapsed
+			end
 			items[#items + 1] = {
 				id = p.jump_target,
 				title = p.label,
-				subtitle = table.concat({
-					p.host,
-					where,
-					p.harness or p.cli or "?",
-					p.server.kind == "rex" and "rex" or "tmux",
-				}, " · "),
+				subtitle = table.concat(parts, " · "),
 				detail = p.render_state,
 				icon = p["local"] and "terminal" or "server",
 			}
@@ -225,7 +249,11 @@ local function run(ctx, args)
 			items[1] = { id = "none", title = "No agents", subtitle = "murmur status lists no live panes" }
 		end
 		local why
-		target, why = rex.ui.pick({ title = "Jump to agent", placeholder = "Filter agents", items = items })
+		target, why = rex.ui.pick({
+			title = include_crew and "Jump to agent (crew)" or "Jump to agent",
+			placeholder = "Filter agents",
+			items = items,
+		})
 		if target == nil then
 			if why ~= "cancelled" then
 				error("agent picker: " .. why, 0)
@@ -247,6 +275,132 @@ local function run(ctx, args)
 		end
 	end
 	error("no such agent: " .. target, 0)
+end
+
+local function run(ctx, args)
+	return run_jump(ctx, args, false)
+end
+
+local function run_crew(ctx, args)
+	return run_jump(ctx, args, true)
+end
+
+local function local_session(job)
+	local session = not job.server and job.session_id
+	if session then
+		return session
+	end
+	local list, err = call(job, THIS_MAC, "session.list", {})
+	if type(list) ~= "table" then
+		error("session list: " .. tostring(err), 0)
+	end
+	return list.sessions and list.sessions[1] and list.sessions[1].session_id
+end
+
+-- Open tsesh in a centered floating Rex layer (like tmux display-popup -E).
+-- Exits and closes the layer automatically when the user picks or cancels.
+local tsesh_cmd = [[
+export PATH="$0"
+exec "$1" pick-and-connect
+]]
+
+local function run_tsesh(ctx)
+	local job = { server = ctx.server, session_id = ctx.session_id, deadline = os.time() + 28 }
+	local layout = rex.layout.block({
+		flavor = "com.superlogical.terminal.shell",
+		options = { command = { "/bin/sh", "-c", tsesh_cmd, path, tsesh_cli } },
+	})
+	local session = local_session(job)
+	if not session then
+		local s, err = call(job, THIS_MAC, "session.create", {
+			label = "tsesh",
+			initial_windows = { { window_label = "tsesh", layout = layout } },
+		})
+		if type(s) ~= "table" then
+			error("new session: " .. tostring(err), 0)
+		end
+		return show(s.session_id)
+	end
+	if not job.server and ctx.window_id then
+		local layer, err = call(job, THIS_MAC, "session.new_layer", {
+			session_id = session,
+			window_id = ctx.window_id,
+			bounds = { 0.05, 0.05, 0.9, 0.9 },
+			focus = true,
+			layout = layout,
+		})
+		if type(layer) == "table" then
+			return
+		end
+		-- Fall through to a tab if the window rejected the floating layer.
+		if err and tostring(err):find("out of time", 1, true) then
+			error("tsesh layer: " .. tostring(err), 0)
+		end
+	end
+	local w, err = call(job, THIS_MAC, "session.new_window", {
+		session_id = session,
+		window_label = "tsesh",
+		layout = layout,
+	})
+	if type(w) ~= "table" then
+		error("new tab: " .. tostring(err), 0)
+	end
+	show(session, w.window_id)
+end
+
+local dash_cmd = [[
+export PATH="$0"
+exec "$1" dash
+]]
+
+local function run_dash(ctx)
+	local job = { server = ctx.server, session_id = ctx.session_id, deadline = os.time() + 28 }
+	local tab = {
+		window_label = "murmur dash",
+		layout = rex.layout.block({
+			flavor = "com.superlogical.terminal.shell",
+			options = { command = { "/bin/sh", "-c", dash_cmd, path, murmur } },
+		}),
+	}
+	local session = local_session(job)
+	if not session then
+		local s, err = call(job, THIS_MAC, "session.create", { label = "agents", initial_windows = { tab } })
+		if type(s) ~= "table" then
+			error("new session: " .. tostring(err), 0)
+		end
+		return show(s.session_id)
+	end
+	tab.session_id = session
+	local w, err = call(job, THIS_MAC, "session.new_window", tab)
+	if type(w) ~= "table" then
+		error("new tab: " .. tostring(err), 0)
+	end
+	show(session, w.window_id)
+end
+
+local function run_rename_from_cwd(ctx)
+	if not ctx.session_id or not ctx.block_id then
+		error("no focused pane to read cwd from", 0)
+	end
+	local proc = rex.block.call("com.superlogical.terminal", "process", { block_id = ctx.block_id })
+	local cwd = proc and proc.foreground and proc.foreground.cwd
+	if (not cwd or cwd == "") and proc and proc.ancestors and proc.ancestors[1] then
+		cwd = proc.ancestors[1].cwd
+	end
+	if not cwd or cwd == "" then
+		error("could not read cwd from focused pane", 0)
+	end
+	local trimmed = cwd:gsub("/+$", "")
+	local label
+	if proc.home and trimmed == proc.home:gsub("/+$", "") then
+		label = "~"
+	else
+		label = trimmed:match("([^/]+)$") or "/"
+	end
+	local ok, err = rex.call("session.set_label", { session_id = ctx.session_id, label = clamp(label, 128) })
+	if not ok then
+		error("rename session: " .. tostring(err), 0)
+	end
 end
 
 -- The Rex server runs with launchd's PATH, which has none of the usual
@@ -283,13 +437,18 @@ local function default_path()
 end
 
 -- opts (every field optional):
---   key    key for the switcher (default "cmd+j"); false or "" binds none,
---          and the action agent_jump is still there to bind yourself
---   path   directories to find murmur and rex in, a list or a ":" string
---          (default ~/.local/bin, /opt/homebrew/bin, /usr/local/bin, and the
---          mise, asdf and volta shim directories that exist)
---   murmur murmur command, a name on path or an absolute path (default "murmur")
---   rex    rex command, likewise (default "rex")
+--   key        direct key for the agent switcher (default "cmd+j"); false or "" binds none
+--   leader     leader prefix for tmux-matching chords (default "ctrl+b"); false or "" disables
+--              the leader mode (s=tsesh, a=agent_jump, A=agent_jump_crew, G=murmur_dash,
+--              T=session_name_from_cwd). Passes through when the focused pane runs tmux.
+--   tsesh_key  optional direct key for the floating tsesh picker (default false)
+--   crew_key   optional direct key for the crew agent switcher (default false)
+--   dash_key   optional direct key for opening murmur dash in a tab (default false)
+--   rename_key optional direct key for renaming the current session from cwd (default false)
+--   path       directories to find murmur, rex and tsesh in, a list or ":" string
+--   murmur     murmur command, a name on path or an absolute path (default "murmur")
+--   rex        rex command, likewise (default "rex")
+--   tsesh      tsesh command, likewise (default "tsesh")
 function M.setup(opts)
 	opts = opts or {}
 	local dirs = opts.path or default_path()
@@ -299,6 +458,7 @@ function M.setup(opts)
 	path = dirs .. ":/usr/bin:/bin:/usr/sbin:/sbin"
 	murmur = opts.murmur or "murmur"
 	rex_cli = opts.rex or "rex"
+	tsesh_cli = opts.tsesh or "tsesh"
 
 	rex.action({
 		name = "agent_jump",
@@ -308,12 +468,73 @@ function M.setup(opts)
 		args = { target = "string?" },
 		run = run,
 	})
-	local key = opts.key
-	if key == nil then
-		key = "cmd+j"
+	rex.action({
+		name = "agent_jump_crew",
+		title = "Jump to Agent (All Crew)…",
+		description = "Pick any Rex or tmux agent including hidden crew workers.",
+		keywords = "murmur agent crew jump switch",
+		args = { target = "string?" },
+		run = run_crew,
+	})
+	rex.action({
+		name = "tsesh_open",
+		title = "Open Session Picker (tsesh)",
+		description = "Open tsesh in a floating Rex pane for sessions, projects, and agents.",
+		keywords = "tsesh session project picker switch tmux rex",
+		run = run_tsesh,
+	})
+	rex.action({
+		name = "murmur_dash",
+		title = "Open Murmur Dash",
+		description = "Open murmur dash in a new Rex tab.",
+		keywords = "murmur dash agents monitor",
+		run = run_dash,
+	})
+	rex.action({
+		name = "session_name_from_cwd",
+		title = "Rename Session from Directory",
+		description = "Rename the current Rex session to the focused pane's directory name.",
+		keywords = "session rename label cwd directory",
+		run = run_rename_from_cwd,
+	})
+
+	local function bind_opt(val, default, action_name)
+		local k = val
+		if k == nil then
+			k = default
+		end
+		if k and k ~= "" then
+			rex.bind(k, action_name)
+		end
 	end
-	if key and key ~= "" then
-		rex.bind(key, "agent_jump")
+
+	bind_opt(opts.key, "cmd+j", "agent_jump")
+	bind_opt(opts.tsesh_key, false, "tsesh_open")
+	bind_opt(opts.crew_key, false, "agent_jump_crew")
+	bind_opt(opts.dash_key, false, "murmur_dash")
+	bind_opt(opts.rename_key, false, "session_name_from_cwd")
+
+	local leader = opts.leader
+	if leader == nil then
+		leader = "ctrl+b"
+	end
+	if leader and leader ~= "" then
+		rex.mode("mu_crew_leader")
+		rex.bind("s", "tsesh_open", { mode = "mu_crew_leader" })
+		rex.bind("a", "agent_jump", { mode = "mu_crew_leader" })
+		rex.bind("shift+a", "agent_jump_crew", { mode = "mu_crew_leader" })
+		rex.bind("shift+g", "murmur_dash", { mode = "mu_crew_leader" })
+		rex.bind("shift+t", "session_name_from_cwd", { mode = "mu_crew_leader" })
+		rex.bind("escape", "client.mode.exit", { mode = "mu_crew_leader" })
+		rex.bind(leader, function(ctx)
+			local proc = ctx.block_id
+				and rex.block.call("com.superlogical.terminal", "process", { block_id = ctx.block_id })
+			if proc and proc.foreground and proc.foreground.name == "tmux" then
+				return false
+			end
+			rex.client.queue("client.mode.enter", { name = "mu_crew_leader", once = true })
+			return true
+		end)
 	end
 end
 
